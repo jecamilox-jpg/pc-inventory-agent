@@ -17,7 +17,9 @@ from flask import (
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "inventory-secret-change-me")
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "inventory.db")
+# Railway: usa volumen persistente si existe, sino directorio local
+_data_dir = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", os.path.dirname(os.path.abspath(__file__)))
+DB_PATH = os.path.join(_data_dir, "inventory.db")
 API_KEY = os.environ.get("INVENTORY_API_KEY", "change-me-on-first-run")
 
 
