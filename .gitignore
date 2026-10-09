@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+venv/
+.venv/
+env/
+
+# DB
+*.db
+*.db-wal
+*.db-shm
+
+# Config con secrets
+agent/config.json
+
+# Logs y reportes
+*.log
+agent/reports/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

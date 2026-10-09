@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PC Inventory - Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0f1117;
+            --surface: #1a1d27;
+            --surface-hover: #222632;
+            --border: #2a2e3a;
+            --text: #e4e6eb;
+            --text-dim: #8b8fa3;
+            --accent: #4f8cff;
+            --accent-hover: #6ba0ff;
+            --green: #34d399;
+            --red: #f87171;
+            --yellow: #fbbf24;
+            --orange: #fb923c;
+            --radius: 10px;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+
+        /* Header */
+        .header {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 16px 28px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .header h1 {
+            font-size: 20px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .header h1 span { font-size: 22px; }
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        .search-box {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px 14px;
+            color: var(--text);
+            font-size: 14px;
+            width: 260px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .search-box:focus { border-color: var(--accent); }
+        .refresh-btn {
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            padding: 8px 16px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .refresh-btn:hover { background: var(--accent-hover); }
+
+        /* Layout */
+        .main { padding: 24px 28px; max-width: 1400px; margin: 0 auto; }
+
+        /* Stats */
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 28px;
+        }
+        .stat-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px;
+        }
+        .stat-card .label {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-dim);
+            margin-bottom: 6px;
+        }
+        .stat-card .value {
+            font-size: 28px;
+            font-weight: 700;
+        }
+        .stat-card .value.green { color: var(--green); }
+        .stat-card .value.accent { color: var(--accent); }
+        .stat-card .value.yellow { color: var(--yellow); }
+
+        /* Table */
+        .table-wrap {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            overflow: hidden;
+        }
+        .table-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .table-header h2 {
+            font-size: 16px;
+            font-weight: 600;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th {
+            text-align: left;
+            padding: 12px 16px;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-dim);
+            border-bottom: 1px solid var(--border);
+            background: var(--bg);
+            font-weight: 600;
+        }
+        td {
+            padding: 12px 16px;
+            font-size: 14px;
+            border-bottom: 1px solid var(--border);
+        }
+        tr:hover td { background: var(--surface-hover); }
+        tr { cursor: pointer; transition: background 0.15s; }
+
+        .status-dot {
+            display: inline-block;
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            margin-right: 6px;
+        }
+        .status-dot.online { background: var(--green); box-shadow: 0 0 6px var(--green); }
+        .status-dot.offline { background: var(--red); }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .badge-type {
+            background: rgba(79,140,255,0.15);
+            color: var(--accent);
+        }
+
+        /* Detail panel */
+        .detail-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.6);
+            z-index: 200;
+        }
+        .detail-overlay.open { display: block; }
+        .detail-panel {
+            position: fixed;
+            right: 0; top: 0; bottom: 0;
+            width: 680px;
+            max-width: 100vw;
+            background: var(--bg);
+            border-left: 1px solid var(--border);
+            overflow-y: auto;
+            z-index: 201;
+            transform: translateX(100%);
+            transition: transform 0.25s ease;
+        }
+        .detail-panel.open { transform: translateX(0); }
+
+        .detail-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            background: var(--bg);
+            z-index: 10;
+        }
+        .detail-header h2 { font-size: 18px; font-weight: 700; }
+        .close-btn {
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--text);
+            width: 32px; height: 32px;
+            border-radius: 8px;
+            font-size: 18px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .close-btn:hover { background: var(--surface); }
+
+        .detail-body { padding: 24px; }
+
+        .detail-section {
+            margin-bottom: 28px;
+        }
+        .detail-section h3 {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--accent);
+            margin-bottom: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+        .info-item {
+            background: var(--surface);
+            border-radius: 8px;
+            padding: 12px 14px;
+        }
+        .info-item .lbl {
+            font-size: 11px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            margin-bottom: 4px;
+        }
+        .info-item .val {
+            font-size: 14px;
+            font-weight: 500;
+            word-break: break-all;
+        }
+        .info-item.full { grid-column: 1 / -1; }
+
+        /* Usage bars */
+        .usage-bar-wrap {
+            background: var(--surface);
+            border-radius: 8px;
+            padding: 14px;
+            margin-bottom: 10px;
+        }
+        .usage-bar-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            margin-bottom: 6px;
+        }
+        .usage-bar {
+            height: 8px;
+            background: var(--border);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .usage-bar-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.5s ease;
+        }
+
+        /* Software table */
+        .sw-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        .sw-table th {
+            padding: 8px 10px;
+            font-size: 11px;
+        }
+        .sw-table td {
+            padding: 6px 10px;
+            font-size: 13px;
+        }
+        .sw-search {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 6px 10px;
+            color: var(--text);
+            font-size: 13px;
+            width: 100%;
+            margin-bottom: 10px;
+            outline: none;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header { padding: 12px 16px; }
+            .main { padding: 16px; }
+            .search-box { width: 160px; }
+            .detail-panel { width: 100vw; }
+            .info-grid { grid-template-columns: 1fr; }
+            .stats-row { grid-template-columns: repeat(2, 1fr); }
+        }
+
+        .loading {
+            text-align: center;
+            padding: 60px;
+            color: var(--text-dim);
+        }
+        .empty-state {
+            text-align: center;
+            padding: 80px 20px;
+            color: var(--text-dim);
+        }
+        .empty-state p { margin-top: 12px; font-size: 14px; }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1><span>🖥️</span> PC Inventory</h1>
+    <div class="header-right">
+        <input type="text" class="search-box" id="searchBox"
+               placeholder="Buscar por hostname, modelo...">
+        <button class="refresh-btn" onclick="loadData()">↻ Actualizar</button>
+    </div>
+</div>
+
+<div class="main">
+    <div class="stats-row" id="statsRow">
+        <div class="stat-card">
+            <div class="label">Total equipos</div>
+            <div class="value accent" id="statTotal">-</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">En línea</div>
+            <div class="value green" id="statOnline">-</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">Software único</div>
+            <div class="value yellow" id="statSoftware">-</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">RAM total</div>
+            <div class="value" id="statRam">-</div>
+        </div>
+    </div>
+
+    <div class="table-wrap">
+        <div class="table-header">
+            <h2>Equipos registrados</h2>
+            <span id="machineCount" style="color:var(--text-dim);font-size:13px"></span>
+        </div>
+        <div style="overflow-x:auto">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Estado</th>
+                        <th>Hostname</th>
+                        <th>Fabricante / Modelo</th>
+                        <th>Serial</th>
+                        <th>OS</th>
+                        <th>CPU</th>
+                        <th>RAM</th>
+                        <th>Usuario</th>
+                        <th>Último reporte</th>
+                    </tr>
+                </thead>
+                <tbody id="machinesBody">
+                    <tr><td colspan="9" class="loading">Cargando...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Detail Panel -->
+<div class="detail-overlay" id="detailOverlay" onclick="closeDetail()"></div>
+<div class="detail-panel" id="detailPanel">
+    <div class="detail-header">
+        <h2 id="detailTitle">Detalle</h2>
+        <button class="close-btn" onclick="closeDetail()">✕</button>
+    </div>
+    <div class="detail-body" id="detailBody">
+        <div class="loading">Cargando...</div>
+    </div>
+</div>
+
+<script>
+let allMachines = [];
+
+async function loadData() {
+    try {
+        const [statsRes, machinesRes] = await Promise.all([
+            fetch('/api/stats'),
+            fetch('/api/machines')
+        ]);
+        const stats = await statsRes.json();
+        const machines = await machinesRes.json();
+
+        allMachines = machines;
+
+        document.getElementById('statTotal').textContent = stats.total_machines;
+        document.getElementById('statOnline').textContent = stats.online_machines;
+        document.getElementById('statSoftware').textContent = stats.total_unique_software;
+        document.getElementById('statRam').textContent = stats.total_ram_gb + ' GB';
+        document.getElementById('machineCount').textContent =
+            machines.length + ' equipo(s)';
+
+        renderMachines(machines);
+    } catch (e) {
+        document.getElementById('machinesBody').innerHTML =
+            '<tr><td colspan="9" class="empty-state">' +
+            '<p>⚠ Error conectando con el servidor</p></td></tr>';
+    }
+}
+
+function renderMachines(machines) {
+    const tbody = document.getElementById('machinesBody');
+
+    if (!machines.length) {
+        tbody.innerHTML =
+            '<tr><td colspan="9" class="empty-state">' +
+            '<p>🖥️ Sin equipos registrados</p>' +
+            '<p>Instala el agente en tus PCs para comenzar</p></td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = machines.map(m => `
+        <tr onclick="openDetail('${m.id}')">
+            <td>
+                <span class="status-dot ${m.is_online ? 'online' : 'offline'}"></span>
+                ${m.is_online ? 'Online' : 'Offline'}
+            </td>
+            <td><strong>${esc(m.hostname)}</strong></td>
+            <td>${esc(m.manufacturer || '')} ${esc(m.model || '')}</td>
+            <td style="font-family:monospace;font-size:12px">${esc(m.serial_number || '-')}</td>
+            <td style="font-size:12px">${esc(shortOS(m.os_edition))}</td>
+            <td style="font-size:12px">${esc(shortCPU(m.cpu_name))}</td>
+            <td>${m.ram_total_gb || 0} GB</td>
+            <td>${esc(m.logged_user || '-')}</td>
+            <td style="font-size:12px;color:var(--text-dim)">${timeAgo(m.last_seen)}</td>
+        </tr>
+    `).join('');
+}
+
+async function openDetail(id) {
+    document.getElementById('detailOverlay').classList.add('open');
+    document.getElementById('detailPanel').classList.add('open');
+    document.getElementById('detailBody').innerHTML =
+        '<div class="loading">Cargando detalle...</div>';
+
+    try {
+        const res = await fetch(`/api/machines/${id}`);
+        const m = await res.json();
+        document.getElementById('detailTitle').textContent = m.hostname;
+        renderDetail(m);
+    } catch (e) {
+        document.getElementById('detailBody').innerHTML =
+            '<div class="loading">Error cargando detalle</div>';
+    }
+}
+
+function renderDetail(m) {
+    const body = document.getElementById('detailBody');
+    const gpu = (m.gpu || []).map(g => g.name).join(', ') || '-';
+
+    let html = `
+    <div class="detail-section">
+        <h3>🖥️ Sistema</h3>
+        <div class="info-grid">
+            <div class="info-item">
+                <div class="lbl">Hostname</div>
+                <div class="val">${esc(m.hostname)}</div>
+            </div>
+            <div class="info-item">
+                <div class="lbl">FQDN</div>
+                <div class="val">${esc(m.fqdn || '-')}</div>
+            </div>
+            <div class="info-item full">
+                <div class="lbl">Sistema Operativo</div>
+                <div class="val">${esc(m.os_edition || '-')} (Build ${esc(m.os_build || '?')})</div>
+            </div>
+            <div class="info-item">
+                <div class="lbl">Arquitectura</div>
+                <div class="val">${esc(m.os_architecture || '-')}</div>
+            </div>
+            <div class="info-item">
+                <div class="lbl">Usuario</div>
+                <div class="val">${esc(m.logged_user || '-')}</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="detail-section">
+        <h3>🔧 Hardware</h3>
+        <div class="info-grid">
+            <div class="info-item">
+                <div class="lbl">Fabricante</div>
+                <div class="val">${esc(m.manufacturer || '-')}</div>
+            </div>
+            <div class="info-item">
+                <div class="lbl">Modelo</div>
+                <div class="val">${esc(m.model || '-')}</div>
+            </div>
+            <div class="info-item">
+                <div class="lbl">Serial</div>
+                <div class="val" style="font-family:monospace">${esc(m.serial_number || '-')}</div>
+            </div>
+            <div class="info-item">
+                <div class="lbl">Tipo</div>
+                <div class="val">${esc(m.chassis_type || '-')}</div>
+            </div>
+            <div class="info-item">
+                <div class="lbl">BIOS</div>
+                <div class="val">${esc(m.bios_version || '-')}</div>
+            </div>
+            <div class="info-item">
+                <div class="lbl">UUID</div>
+                <div class="val" style="font-size:11px">${esc(m.system_uuid || '-')}</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="detail-section">
+        <h3>⚡ Procesador</h3>
+        <div class="info-grid">
+            <div class="info-item full">
+                <div class="lbl">CPU</div>
+                <div class="val">${esc(m.cpu_name || '-')}</div>
+            </div>
+            <div class="info-item">
+                <div class="lbl">Núcleos físicos / lógicos</div>
+                <div class="val">${m.cpu_cores_physical || 0} / ${m.cpu_cores_logical || 0}</div>
+            </div>
+            <div class="info-item">
+                <div class="lbl">Velocidad máx</div>
+                <div class="val">${m.cpu_max_speed_mhz || 0} MHz</div>
+            </div>
+        </div>
+        ${usageBar('CPU', m.cpu_usage_percent || 0)}
+    </div>
+
+    <div class="detail-section">
+        <h3>💾 Memoria RAM</h3>
+        <div class="info-grid">
+            <div class="info-item">
+                <div class="lbl">Total</div>
+                <div class="val">${m.ram_total_gb || 0} GB</div>
+            </div>
+            <div class="info-item">
+                <div class="lbl">GPU</div>
+                <div class="val">${esc(gpu)}</div>
+            </div>
+        </div>
+        ${usageBar('RAM', m.ram_usage_percent || 0)}
+    `;
+
+    // Módulos RAM
+    if (m.ram_modules && m.ram_modules.length) {
+        html += '<div style="margin-top:12px">';
+        m.ram_modules.forEach(mod => {
+            html += `<div class="info-item" style="margin-bottom:6px">
+                <div class="val" style="font-size:13px">
+                    ${esc(mod.slot || '?')}: ${mod.capacity_gb} GB
+                    ${mod.speed_mhz ? mod.speed_mhz + ' MHz' : ''}
+                    ${mod.manufacturer ? '(' + esc(mod.manufacturer) + ')' : ''}
+                </div>
+            </div>`;
+        });
+        html += '</div>';
+    }
+
+    html += '</div>';
+
+    // Discos
+    html += '<div class="detail-section"><h3>💿 Almacenamiento</h3>';
+
+    const physicalDisks = (m.disks || []).filter(d => d.disk_type === 'physical');
+    const partitions = (m.disks || []).filter(d => d.disk_type === 'partition');
+
+    if (physicalDisks.length) {
+        physicalDisks.forEach(d => {
+            html += `<div class="info-item" style="margin-bottom:8px">
+                <div class="lbl">${esc(d.model || 'Disco')}</div>
+                <div class="val">${d.size_gb} GB — ${esc(d.interface || '')} ${esc(d.media_type || '')}</div>
+                <div style="font-size:11px;color:var(--text-dim);margin-top:2px">S/N: ${esc(d.serial || '-')}</div>
+            </div>`;
+        });
+    }
+
+    partitions.forEach(p => {
+        html += usageBar(
+            `${p.mountpoint} (${p.fstype || '?'}) — ${p.total_gb} GB`,
+            p.usage_percent || 0
+        );
+    });
+    html += '</div>';
+
+    // Red
+    const activeAdapters = (m.network_adapters || []).filter(a => a.ipv4);
+    if (activeAdapters.length) {
+        html += '<div class="detail-section"><h3>🌐 Red</h3><div class="info-grid">';
+        activeAdapters.forEach(a => {
+            html += `<div class="info-item">
+                <div class="lbl">${esc(a.name)}</div>
+                <div class="val">${esc(a.ipv4 || '-')}</div>
+                <div style="font-size:11px;color:var(--text-dim)">${esc(a.mac || '')}</div>
+            </div>`;
+        });
+        html += '</div></div>';
+    }
+
+    // Software
+    const software = m.software || [];
+    if (software.length) {
+        html += `<div class="detail-section">
+            <h3>📦 Software instalado (${software.length})</h3>
+            <input type="text" class="sw-search" placeholder="Filtrar software..."
+                   oninput="filterSoftware(this.value)">
+            <div style="max-height:400px;overflow-y:auto">
+            <table class="sw-table" id="swTable">
+                <thead><tr>
+                    <th>Nombre</th><th>Versión</th><th>Editor</th>
+                </tr></thead>
+                <tbody>`;
+        software.forEach(s => {
+            html += `<tr>
+                <td>${esc(s.name)}</td>
+                <td>${esc(s.version || '-')}</td>
+                <td style="color:var(--text-dim)">${esc(s.publisher || '-')}</td>
+            </tr>`;
+        });
+        html += '</tbody></table></div></div>';
+    }
+
+    // Metadata
+    html += `<div class="detail-section">
+        <h3>ℹ️ Agente</h3>
+        <div class="info-grid">
+            <div class="info-item">
+                <div class="lbl">Versión agente</div>
+                <div class="val">${esc(m.agent_version || '-')}</div>
+            </div>
+            <div class="info-item">
+                <div class="lbl">Admin</div>
+                <div class="val">${m.is_admin ? '✓ Sí' : '✗ No'}</div>
+            </div>
+            <div class="info-item">
+                <div class="lbl">Primera vez</div>
+                <div class="val">${fmtDate(m.first_seen)}</div>
+            </div>
+            <div class="info-item">
+                <div class="lbl">Último reporte</div>
+                <div class="val">${fmtDate(m.last_seen)}</div>
+            </div>
+        </div>
+    </div>`;
+
+    body.innerHTML = html;
+}
+
+function closeDetail() {
+    document.getElementById('detailOverlay').classList.remove('open');
+    document.getElementById('detailPanel').classList.remove('open');
+}
+
+function filterSoftware(q) {
+    const rows = document.querySelectorAll('#swTable tbody tr');
+    q = q.toLowerCase();
+    rows.forEach(row => {
+        row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
+    });
+}
+
+function usageBar(label, pct) {
+    pct = Math.min(100, Math.max(0, pct));
+    let color = 'var(--green)';
+    if (pct > 85) color = 'var(--red)';
+    else if (pct > 70) color = 'var(--orange)';
+    else if (pct > 50) color = 'var(--yellow)';
+
+    return `<div class="usage-bar-wrap">
+        <div class="usage-bar-label">
+            <span>${label}</span><span>${pct.toFixed(1)}%</span>
+        </div>
+        <div class="usage-bar"><div class="usage-bar-fill"
+            style="width:${pct}%;background:${color}"></div></div>
+    </div>`;
+}
+
+// Helpers
+function esc(s) {
+    if (!s) return '';
+    const d = document.createElement('div');
+    d.textContent = String(s);
+    return d.innerHTML;
+}
+
+function shortOS(os) {
+    if (!os) return '-';
+    return os.replace('Microsoft ', '').replace('Windows ', 'Win ');
+}
+
+function shortCPU(cpu) {
+    if (!cpu) return '-';
+    return cpu.replace('Intel(R) Core(TM) ', '')
+              .replace('AMD ', '')
+              .replace(' Processor', '')
+              .substring(0, 30);
+}
+
+function timeAgo(iso) {
+    if (!iso) return '-';
+    const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+    if (diff < 60) return 'Ahora';
+    if (diff < 3600) return Math.floor(diff / 60) + ' min';
+    if (diff < 86400) return Math.floor(diff / 3600) + ' h';
+    return Math.floor(diff / 86400) + ' d';
+}
+
+function fmtDate(iso) {
+    if (!iso) return '-';
+    return new Date(iso).toLocaleString('es-CO');
+}
+
+// Search
+document.getElementById('searchBox').addEventListener('input', function() {
+    const q = this.value.toLowerCase();
+    const filtered = allMachines.filter(m =>
+        (m.hostname || '').toLowerCase().includes(q) ||
+        (m.model || '').toLowerCase().includes(q) ||
+        (m.manufacturer || '').toLowerCase().includes(q) ||
+        (m.serial_number || '').toLowerCase().includes(q) ||
+        (m.logged_user || '').toLowerCase().includes(q)
+    );
+    renderMachines(filtered);
+});
+
+// Auto-refresh cada 30s
+setInterval(loadData, 30000);
+
+// Init
+loadData();
+</script>
+
+</body>
+</html>
