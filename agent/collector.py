@@ -1,7 +1,7 @@
 """
 PC Inventory Collector
 Recopila información completa del hardware y software del equipo.
-Compatible con Windows (usa WMI y PowerShell).
+Compatible con Windows (WMI/PowerShell), macOS (system_profiler) y Linux.
 """
 
 import platform
@@ -11,7 +11,6 @@ import json
 import uuid
 import os
 import sys
-import ctypes
 from datetime import datetime
 
 try:
@@ -19,35 +18,58 @@ try:
 except ImportError:
     psutil = None
 
-try:
-    import wmi as wmi_module
-except ImportError:
-    wmi_module = None
+# WMI solo en Windows
+wmi_module = None
+if platform.system() == "Windows":
+    try:
+        import wmi as wmi_module
+    except ImportError:
+        pass
+
+IS_WINDOWS = platform.system() == "Windows"
+IS_MAC = platform.system() == "Darwin"
+IS_LINUX = platform.system() == "Linux"
+
+
+# ========== Helpers de subproceso ==========
+def _run_cmd(command, timeout=30, shell=False):
+    """Ejecuta un comando y retorna la salida."""
+    try:
+        result = subprocess.run(
+            command, capture_output=True, text=True,
+            timeout=timeout, shell=shell
+        )
+        return result.stdout.strip()
+    except Exception:
+        return ""
 
 
 def _run_powershell(command):
     """Ejecuta un comando PowerShell y retorna la salida."""
-    try:
-        result = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", command],
-            capture_output=True, text=True, timeout=30
-        )
-        return result.stdout.strip()
-    except Exception:
-        return ""
+    return _run_cmd(
+        ["powershell", "-NoProfile", "-Command", command], timeout=30
+    )
 
 
 def _run_wmic(command):
     """Ejecuta un comando WMIC y retorna la salida."""
+    return _run_cmd(command, timeout=15, shell=True)
+
+
+def _run_system_profiler(data_type):
+    """Ejecuta system_profiler en macOS y retorna JSON."""
     try:
-        result = subprocess.run(
-            command, capture_output=True, text=True, timeout=15, shell=True
+        output = _run_cmd(
+            ["system_profiler", data_type, "-json"], timeout=30
         )
-        return result.stdout.strip()
-    except Exception:
-        return ""
+        if output:
+            return json.loads(output)
+    except (json.JSONDecodeError, Exception):
+        pass
+    return {}
 
 
+# ========== System Info ==========
 def get_system_info():
     """Información básica del sistema operativo."""
     info = {
@@ -63,18 +85,38 @@ def get_system_info():
         "boot_time": "",
     }
 
-    if platform.system() == "Windows":
+    if IS_WINDOWS:
         edition = _run_powershell(
             "(Get-CimInstance Win32_OperatingSystem).Caption"
         )
         if edition:
             info["os_edition"] = edition
-
         build = _run_powershell(
             "(Get-CimInstance Win32_OperatingSystem).BuildNumber"
         )
         if build:
             info["os_build"] = build
+
+    elif IS_MAC:
+        # macOS version info
+        sw_vers = _run_cmd(["sw_vers", "-productVersion"])
+        build = _run_cmd(["sw_vers", "-buildVersion"])
+        product = _run_cmd(["sw_vers", "-productName"])
+        info["os_edition"] = f"{product} {sw_vers}" if product else f"macOS {sw_vers}"
+        info["os_build"] = build
+        info["os_version"] = sw_vers
+
+    elif IS_LINUX:
+        # Linux distro info
+        try:
+            with open("/etc/os-release") as f:
+                for line in f:
+                    if line.startswith("PRETTY_NAME="):
+                        info["os_edition"] = line.split("=", 1)[1].strip().strip('"')
+                    elif line.startswith("VERSION_ID="):
+                        info["os_build"] = line.split("=", 1)[1].strip().strip('"')
+        except FileNotFoundError:
+            pass
 
     if psutil:
         import datetime as dt
@@ -84,6 +126,7 @@ def get_system_info():
     return info
 
 
+# ========== Hardware IDs ==========
 def get_hardware_ids():
     """Modelo, serial, fabricante, BIOS."""
     info = {
@@ -96,8 +139,7 @@ def get_hardware_ids():
         "chassis_type": "",
     }
 
-    if platform.system() == "Windows":
-        # Intentar con WMI Python
+    if IS_WINDOWS:
         if wmi_module:
             try:
                 w = wmi_module.WMI()
@@ -113,12 +155,14 @@ def get_hardware_ids():
                 for enclosure in w.Win32_SystemEnclosure():
                     chassis_types = enclosure.ChassisTypes
                     if chassis_types:
-                        info["chassis_type"] = _chassis_type_name(chassis_types[0])
+                        info["chassis_type"] = _chassis_type_name(
+                            chassis_types[0]
+                        )
                 return info
             except Exception:
                 pass
 
-        # Fallback con PowerShell
+        # Fallback PowerShell
         info["manufacturer"] = _run_powershell(
             "(Get-CimInstance Win32_ComputerSystem).Manufacturer"
         )
@@ -135,7 +179,60 @@ def get_hardware_ids():
             "(Get-CimInstance Win32_ComputerSystemProduct).UUID"
         )
 
+    elif IS_MAC:
+        sp = _run_system_profiler("SPHardwareDataType")
+        hw_items = sp.get("SPHardwareDataType", [])
+        if hw_items:
+            hw = hw_items[0]
+            info["model"] = hw.get("machine_model", "")
+            info["serial_number"] = hw.get("serial_number", "")
+            info["system_uuid"] = hw.get("platform_UUID", "")
+            # Apple Silicon vs Intel
+            chip = hw.get("chip_type", "")
+            if chip:
+                info["manufacturer"] = "Apple"
+                info["model"] = f"{hw.get('machine_name', '')} ({chip})"
+            else:
+                info["manufacturer"] = "Apple"
+            info["chassis_type"] = _detect_mac_chassis()
+
+    elif IS_LINUX:
+        # Leer de DMI/SMBIOS
+        dmi_paths = {
+            "manufacturer": "/sys/class/dmi/id/sys_vendor",
+            "model": "/sys/class/dmi/id/product_name",
+            "serial_number": "/sys/class/dmi/id/product_serial",
+            "bios_version": "/sys/class/dmi/id/bios_version",
+            "bios_vendor": "/sys/class/dmi/id/bios_vendor",
+            "system_uuid": "/sys/class/dmi/id/product_uuid",
+            "chassis_type": "/sys/class/dmi/id/chassis_type",
+        }
+        for key, path in dmi_paths.items():
+            try:
+                with open(path) as f:
+                    val = f.read().strip()
+                    if key == "chassis_type" and val.isdigit():
+                        val = _chassis_type_name(int(val))
+                    info[key] = val
+            except (FileNotFoundError, PermissionError):
+                pass
+
     return info
+
+
+def _detect_mac_chassis():
+    """Detecta tipo de chasis en Mac."""
+    model = _run_cmd(["sysctl", "-n", "hw.model"])
+    model_lower = model.lower() if model else ""
+    if "book" in model_lower:
+        return "Laptop"
+    elif "imac" in model_lower:
+        return "All in One"
+    elif "mini" in model_lower:
+        return "Desktop"
+    elif "pro" in model_lower and "book" not in model_lower:
+        return "Desktop"
+    return "Desktop"
 
 
 def _chassis_type_name(code):
@@ -154,6 +251,7 @@ def _chassis_type_name(code):
     return types.get(code, f"Unknown ({code})")
 
 
+# ========== CPU ==========
 def get_cpu_info():
     """Información del procesador."""
     info = {
@@ -166,18 +264,44 @@ def get_cpu_info():
         "usage_percent": 0,
     }
 
-    if platform.system() == "Windows":
+    if IS_WINDOWS:
         cpu_name = _run_powershell(
             "(Get-CimInstance Win32_Processor).Name"
         )
         if cpu_name:
             info["name"] = cpu_name
-
         max_speed = _run_powershell(
             "(Get-CimInstance Win32_Processor).MaxClockSpeed"
         )
         if max_speed and max_speed.isdigit():
             info["max_speed_mhz"] = int(max_speed)
+
+    elif IS_MAC:
+        # CPU name
+        brand = _run_cmd(["sysctl", "-n", "machdep.cpu.brand_string"])
+        if brand:
+            info["name"] = brand
+        else:
+            # Apple Silicon
+            chip = _run_cmd(
+                ["sysctl", "-n", "machdep.cpu.brand"]
+            )
+            if not chip:
+                sp = _run_system_profiler("SPHardwareDataType")
+                hw_items = sp.get("SPHardwareDataType", [])
+                if hw_items:
+                    chip = hw_items[0].get("chip_type", "Apple Silicon")
+            info["name"] = chip or "Apple Silicon"
+
+    elif IS_LINUX:
+        try:
+            with open("/proc/cpuinfo") as f:
+                for line in f:
+                    if line.startswith("model name"):
+                        info["name"] = line.split(":", 1)[1].strip()
+                        break
+        except FileNotFoundError:
+            pass
 
     if psutil:
         info["cores_physical"] = psutil.cpu_count(logical=False) or 0
@@ -187,6 +311,7 @@ def get_cpu_info():
     return info
 
 
+# ========== Memory ==========
 def get_memory_info():
     """Información de la memoria RAM."""
     info = {
@@ -204,8 +329,7 @@ def get_memory_info():
         info["used_gb"] = round(mem.used / (1024 ** 3), 2)
         info["usage_percent"] = mem.percent
 
-    if platform.system() == "Windows":
-        # Detalle de módulos RAM
+    if IS_WINDOWS:
         ram_json = _run_powershell(
             "Get-CimInstance Win32_PhysicalMemory | "
             "Select-Object Manufacturer,PartNumber,Speed,Capacity,"
@@ -229,9 +353,36 @@ def get_memory_info():
             except json.JSONDecodeError:
                 pass
 
+    elif IS_MAC:
+        sp = _run_system_profiler("SPMemoryDataType")
+        mem_items = sp.get("SPMemoryDataType", [])
+        for bank in mem_items:
+            # macOS puede tener items directos o sub-items
+            items = bank.get("_items", [bank])
+            for mod in items:
+                size_str = mod.get("dimm_size", "0")
+                # Parsear "8 GB" -> 8.0
+                try:
+                    size_gb = float(size_str.split()[0])
+                except (ValueError, IndexError):
+                    size_gb = 0
+                speed_str = mod.get("dimm_speed", "0")
+                try:
+                    speed = int(speed_str.split()[0])
+                except (ValueError, IndexError):
+                    speed = 0
+                info["modules"].append({
+                    "manufacturer": mod.get("dimm_manufacturer", ""),
+                    "part_number": mod.get("dimm_part_number", ""),
+                    "speed_mhz": speed,
+                    "capacity_gb": size_gb,
+                    "slot": mod.get("_name", ""),
+                })
+
     return info
 
 
+# ========== Disks ==========
 def get_disk_info():
     """Información de discos físicos y particiones."""
     disks = {
@@ -239,8 +390,7 @@ def get_disk_info():
         "partitions": [],
     }
 
-    if platform.system() == "Windows":
-        # Discos físicos
+    if IS_WINDOWS:
         disk_json = _run_powershell(
             "Get-CimInstance Win32_DiskDrive | "
             "Select-Object Model,SerialNumber,Size,InterfaceType,MediaType,"
@@ -266,6 +416,54 @@ def get_disk_info():
             except json.JSONDecodeError:
                 pass
 
+    elif IS_MAC:
+        sp = _run_system_profiler("SPStorageDataType")
+        storage_items = sp.get("SPStorageDataType", [])
+        for vol in storage_items:
+            size_bytes = vol.get("size_in_bytes", 0)
+            free_bytes = vol.get("free_space_in_bytes", 0)
+            total_gb = round(size_bytes / (1024 ** 3), 2) if size_bytes else 0
+            free_gb = round(free_bytes / (1024 ** 3), 2) if free_bytes else 0
+            disks["physical_drives"].append({
+                "model": vol.get("physical_drive", {}).get(
+                    "device_name", vol.get("_name", "")
+                ),
+                "serial": "",
+                "size_gb": total_gb,
+                "interface": vol.get("physical_drive", {}).get(
+                    "protocol", ""
+                ),
+                "media_type": vol.get("physical_drive", {}).get(
+                    "medium_type", ""
+                ),
+            })
+
+    elif IS_LINUX:
+        # lsblk para discos físicos
+        lsblk_out = _run_cmd(
+            ["lsblk", "-Jbo", "NAME,SIZE,TYPE,MODEL,SERIAL,TRAN"],
+            timeout=10
+        )
+        if lsblk_out:
+            try:
+                blk = json.loads(lsblk_out)
+                for dev in blk.get("blockdevices", []):
+                    if dev.get("type") == "disk":
+                        disks["physical_drives"].append({
+                            "model": dev.get("model", "").strip()
+                                if dev.get("model") else "",
+                            "serial": dev.get("serial", "").strip()
+                                if dev.get("serial") else "",
+                            "size_gb": round(
+                                int(dev.get("size", 0)) / (1024 ** 3), 2
+                            ),
+                            "interface": dev.get("tran", "") or "",
+                            "media_type": "",
+                        })
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+    # Particiones (multiplataforma con psutil)
     if psutil:
         for part in psutil.disk_partitions():
             try:
@@ -279,12 +477,13 @@ def get_disk_info():
                     "free_gb": round(usage.free / (1024 ** 3), 2),
                     "usage_percent": usage.percent,
                 })
-            except PermissionError:
+            except (PermissionError, OSError):
                 pass
 
     return disks
 
 
+# ========== Network ==========
 def get_network_info():
     """Información de adaptadores de red."""
     adapters = []
@@ -319,11 +518,12 @@ def get_network_info():
     return adapters
 
 
+# ========== GPU ==========
 def get_gpu_info():
     """Información de tarjetas gráficas."""
     gpus = []
 
-    if platform.system() == "Windows":
+    if IS_WINDOWS:
         gpu_json = _run_powershell(
             "Get-CimInstance Win32_VideoController | "
             "Select-Object Name,AdapterRAM,DriverVersion,"
@@ -350,14 +550,53 @@ def get_gpu_info():
             except json.JSONDecodeError:
                 pass
 
+    elif IS_MAC:
+        sp = _run_system_profiler("SPDisplaysDataType")
+        display_items = sp.get("SPDisplaysDataType", [])
+        for gpu in display_items:
+            vram_str = gpu.get("sppci_vram", gpu.get("sppci_vram_shared", ""))
+            try:
+                vram_mb = int(vram_str.split()[0]) if vram_str else 0
+            except (ValueError, IndexError):
+                vram_mb = 0
+            # Resolution from connected displays
+            resolution = ""
+            ndrvs = gpu.get("spdisplays_ndrvs", [])
+            if ndrvs:
+                res = ndrvs[0].get("_spdisplays_resolution", "")
+                resolution = res
+            gpus.append({
+                "name": gpu.get("sppci_model", gpu.get("_name", "")),
+                "vram_mb": vram_mb,
+                "driver_version": "",
+                "resolution": resolution,
+            })
+
+    elif IS_LINUX:
+        # Intentar con lspci
+        lspci = _run_cmd(["lspci"], timeout=10)
+        if lspci:
+            for line in lspci.split("\n"):
+                if "VGA" in line or "3D" in line or "Display" in line:
+                    # Extraer nombre después del ": "
+                    parts = line.split(": ", 1)
+                    name = parts[1] if len(parts) > 1 else line
+                    gpus.append({
+                        "name": name.strip(),
+                        "vram_mb": 0,
+                        "driver_version": "",
+                        "resolution": "",
+                    })
+
     return gpus
 
 
+# ========== Software ==========
 def get_installed_software():
     """Lista de software instalado."""
     software = []
 
-    if platform.system() == "Windows":
+    if IS_WINDOWS:
         ps_cmd = (
             "Get-ItemProperty "
             "'HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*',"
@@ -383,43 +622,96 @@ def get_installed_software():
             except json.JSONDecodeError:
                 pass
 
+    elif IS_MAC:
+        sp = _run_system_profiler("SPApplicationsDataType")
+        app_items = sp.get("SPApplicationsDataType", [])
+        for app in app_items:
+            software.append({
+                "name": app.get("_name", ""),
+                "version": app.get("version", ""),
+                "publisher": app.get("obtained_from", ""),
+                "install_date": app.get("lastModified", ""),
+            })
+        # Sort by name
+        software.sort(key=lambda x: x.get("name", "").lower())
+
+    elif IS_LINUX:
+        # dpkg para Debian/Ubuntu
+        dpkg_out = _run_cmd(
+            ["dpkg-query", "-W", "-f",
+             '${Package}\\t${Version}\\t${Maintainer}\\n'],
+            timeout=30
+        )
+        if dpkg_out:
+            for line in dpkg_out.split("\n"):
+                parts = line.split("\t")
+                if len(parts) >= 2:
+                    software.append({
+                        "name": parts[0],
+                        "version": parts[1],
+                        "publisher": parts[2] if len(parts) > 2 else "",
+                        "install_date": "",
+                    })
+        else:
+            # rpm para RHEL/CentOS/Fedora
+            rpm_out = _run_cmd(
+                ["rpm", "-qa", "--queryformat",
+                 "%{NAME}\\t%{VERSION}-%{RELEASE}\\t%{VENDOR}\\n"],
+                timeout=30
+            )
+            if rpm_out:
+                for line in rpm_out.split("\n"):
+                    parts = line.split("\t")
+                    if len(parts) >= 2:
+                        software.append({
+                            "name": parts[0],
+                            "version": parts[1],
+                            "publisher": parts[2]
+                                if len(parts) > 2 else "",
+                            "install_date": "",
+                        })
+
     return software
 
 
+# ========== Windows Updates ==========
 def get_windows_updates():
     """Últimas actualizaciones de Windows instaladas."""
     updates = []
 
-    if platform.system() == "Windows":
-        upd_json = _run_powershell(
-            "Get-HotFix | Select-Object HotFixID,Description,InstalledOn "
-            "| Sort-Object InstalledOn -Descending "
-            "| Select-Object -First 20 | ConvertTo-Json"
-        )
-        if upd_json:
-            try:
-                items = json.loads(upd_json)
-                if isinstance(items, dict):
-                    items = [items]
-                for u in items:
-                    installed = u.get("InstalledOn", "")
-                    if isinstance(installed, dict):
-                        installed = installed.get("DateTime", "")
-                    updates.append({
-                        "kb": u.get("HotFixID", ""),
-                        "description": u.get("Description", ""),
-                        "installed_on": str(installed),
-                    })
-            except json.JSONDecodeError:
-                pass
+    if not IS_WINDOWS:
+        return updates
+
+    upd_json = _run_powershell(
+        "Get-HotFix | Select-Object HotFixID,Description,InstalledOn "
+        "| Sort-Object InstalledOn -Descending "
+        "| Select-Object -First 20 | ConvertTo-Json"
+    )
+    if upd_json:
+        try:
+            items = json.loads(upd_json)
+            if isinstance(items, dict):
+                items = [items]
+            for u in items:
+                installed = u.get("InstalledOn", "")
+                if isinstance(installed, dict):
+                    installed = installed.get("DateTime", "")
+                updates.append({
+                    "kb": u.get("HotFixID", ""),
+                    "description": u.get("Description", ""),
+                    "installed_on": str(installed),
+                })
+        except json.JSONDecodeError:
+            pass
 
     return updates
 
 
+# ========== User / Admin ==========
 def get_logged_user():
     """Usuario actualmente logueado."""
     try:
-        if platform.system() == "Windows":
+        if IS_WINDOWS:
             user = _run_powershell(
                 "[System.Security.Principal.WindowsIdentity]"
                 "::GetCurrent().Name"
@@ -428,23 +720,26 @@ def get_logged_user():
                 return user
         return os.getlogin()
     except Exception:
-        return ""
+        return os.environ.get("USER", os.environ.get("USERNAME", ""))
 
 
 def is_admin():
-    """Verifica si se ejecuta con privilegios de administrador."""
+    """Verifica si se ejecuta con privilegios de administrador/root."""
     try:
-        if platform.system() == "Windows":
+        if IS_WINDOWS:
+            import ctypes
             return ctypes.windll.shell32.IsUserAnAdmin() != 0
+        else:
+            return os.geteuid() == 0
     except Exception:
-        pass
-    return False
+        return False
 
 
+# ========== Collect All ==========
 def collect_full_inventory():
     """Recopila toda la información y la retorna como diccionario."""
     inventory = {
-        "agent_version": "1.0.0",
+        "agent_version": "1.1.0",
         "collected_at": datetime.now().isoformat(),
         "agent_id": str(uuid.getnode()),
         "is_admin": is_admin(),
