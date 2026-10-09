@@ -322,6 +322,41 @@
             .stats-row { grid-template-columns: repeat(2, 1fr); }
         }
 
+        /* WOL Button */
+        .wol-btn {
+            background: var(--green);
+            color: #000;
+            border: none;
+            border-radius: 8px;
+            padding: 10px 20px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s;
+            width: 100%;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+        .wol-btn:hover { background: #2fc48b; transform: translateY(-1px); }
+        .wol-btn:disabled {
+            background: var(--border);
+            color: var(--text-dim);
+            cursor: not-allowed;
+            transform: none;
+        }
+        .wol-btn.sending { background: var(--yellow); color: #000; }
+        .wol-btn.sent { background: var(--accent); color: #fff; }
+        .wol-notice {
+            font-size: 12px;
+            color: var(--text-dim);
+            text-align: center;
+            margin-top: -14px;
+            margin-bottom: 20px;
+        }
+
         .loading {
             text-align: center;
             padding: 60px;
@@ -484,8 +519,19 @@ async function openDetail(id) {
 function renderDetail(m) {
     const body = document.getElementById('detailBody');
     const gpu = (m.gpu || []).map(g => g.name).join(', ') || '-';
+    const machineId = m.id;
 
-    let html = `
+    // Botón WOL (solo si está offline)
+    let wolHtml = '';
+    if (!m.is_online) {
+        wolHtml = `
+        <button class="wol-btn" id="wolBtn" onclick="sendWOL('${machineId}')">
+            ⚡ Encender equipo (Wake-on-LAN)
+        </button>
+        <p class="wol-notice">Requiere un agente online en la misma red local y WOL habilitado en BIOS</p>`;
+    }
+
+    let html = wolHtml + `
     <div class="detail-section">
         <h3>🖥️ Sistema</h3>
         <div class="info-grid">
@@ -707,6 +753,48 @@ function usageBar(label, pct) {
         <div class="usage-bar"><div class="usage-bar-fill"
             style="width:${pct}%;background:${color}"></div></div>
     </div>`;
+}
+
+// Wake-on-LAN
+async function sendWOL(machineId) {
+    const btn = document.getElementById('wolBtn');
+    if (!btn) return;
+
+    btn.disabled = true;
+    btn.className = 'wol-btn sending';
+    btn.innerHTML = '⏳ Enviando comando WOL...';
+
+    try {
+        const res = await fetch(`/api/wol/${machineId}`, { method: 'POST' });
+        const data = await res.json();
+
+        if (res.ok) {
+            btn.className = 'wol-btn sent';
+            btn.innerHTML = '✓ Comando WOL enviado';
+            // Mostrar MAC
+            const notice = btn.nextElementSibling;
+            if (notice && data.target_mac) {
+                notice.textContent = `Magic packet encolado para ${data.target_mac}. Un agente en la red lo ejecutará.`;
+            }
+        } else {
+            btn.className = 'wol-btn';
+            btn.disabled = false;
+            btn.innerHTML = `✗ ${data.error || 'Error'}`;
+        }
+    } catch (e) {
+        btn.className = 'wol-btn';
+        btn.disabled = false;
+        btn.innerHTML = '✗ Error de conexión';
+    }
+
+    // Re-habilitar después de 30s
+    setTimeout(() => {
+        if (btn) {
+            btn.disabled = false;
+            btn.className = 'wol-btn';
+            btn.innerHTML = '⚡ Encender equipo (Wake-on-LAN)';
+        }
+    }, 30000);
 }
 
 // Helpers

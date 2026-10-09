@@ -132,12 +132,29 @@ def init_db():
             success INTEGER DEFAULT 1
         );
 
+        CREATE TABLE IF NOT EXISTS wol_commands (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            target_machine_id TEXT NOT NULL,
+            target_mac TEXT NOT NULL,
+            target_hostname TEXT,
+            requested_at TEXT,
+            requested_by TEXT DEFAULT 'dashboard',
+            status TEXT DEFAULT 'pending',
+            picked_by_machine TEXT,
+            picked_at TEXT,
+            result TEXT,
+            completed_at TEXT,
+            FOREIGN KEY (target_machine_id) REFERENCES machines(id)
+        );
+
         CREATE INDEX IF NOT EXISTS idx_machines_hostname
             ON machines(hostname);
         CREATE INDEX IF NOT EXISTS idx_software_machine
             ON software(machine_id);
         CREATE INDEX IF NOT EXISTS idx_disks_machine
             ON disks(machine_id);
+        CREATE INDEX IF NOT EXISTS idx_wol_status
+            ON wol_commands(status);
     """)
     db.close()
 
@@ -447,6 +464,123 @@ def api_stats():
         "by_manufacturer": by_manufacturer,
         "by_os": by_os,
     })
+
+
+# ========== Wake-on-LAN ==========
+@app.route("/api/wol/<machine_id>", methods=["POST"])
+def api_wol_request(machine_id):
+    """Solicita encender un equipo via Wake-on-LAN."""
+    db = get_db()
+    machine = db.execute(
+        "SELECT id, hostname FROM machines WHERE id = ?", (machine_id,)
+    ).fetchone()
+    if not machine:
+        return jsonify({"error": "Máquina no encontrada"}), 404
+
+    # Buscar MAC principal (adaptador activo con IP)
+    adapter = db.execute("""
+        SELECT mac FROM network_adapters
+        WHERE machine_id = ? AND mac != '' AND mac IS NOT NULL
+            AND ipv4 != '' AND ipv4 IS NOT NULL
+        ORDER BY is_up DESC, speed_mbps DESC
+        LIMIT 1
+    """, (machine_id,)).fetchone()
+
+    if not adapter or not adapter["mac"]:
+        # Fallback: cualquier MAC que no sea vacía
+        adapter = db.execute("""
+            SELECT mac FROM network_adapters
+            WHERE machine_id = ? AND mac != '' AND mac IS NOT NULL
+                AND mac != '00:00:00:00:00:00'
+            LIMIT 1
+        """, (machine_id,)).fetchone()
+
+    if not adapter or not adapter["mac"]:
+        return jsonify({"error": "No se encontró MAC address para este equipo"}), 400
+
+    mac = adapter["mac"]
+    now = datetime.now().isoformat()
+
+    # Verificar que no haya un comando pendiente reciente (< 2 min)
+    recent = db.execute("""
+        SELECT id FROM wol_commands
+        WHERE target_machine_id = ? AND status = 'pending'
+            AND requested_at > datetime('now', '-2 minutes')
+    """, (machine_id,)).fetchone()
+
+    if recent:
+        return jsonify({
+            "status": "already_pending",
+            "message": "Ya hay un comando WOL pendiente para este equipo",
+        })
+
+    db.execute("""
+        INSERT INTO wol_commands (target_machine_id, target_mac,
+            target_hostname, requested_at, status)
+        VALUES (?, ?, ?, ?, 'pending')
+    """, (machine_id, mac, machine["hostname"], now))
+    db.commit()
+
+    return jsonify({
+        "status": "queued",
+        "machine_id": machine_id,
+        "hostname": machine["hostname"],
+        "target_mac": mac,
+        "message": f"Comando WOL encolado. Un agente en la red local lo ejecutará.",
+    })
+
+
+@app.route("/api/wol/pending", methods=["GET"])
+@require_api_key
+def api_wol_pending():
+    """Retorna comandos WOL pendientes para que un agente los ejecute."""
+    db = get_db()
+    commands = db.execute("""
+        SELECT id, target_machine_id, target_mac, target_hostname,
+               requested_at
+        FROM wol_commands
+        WHERE status = 'pending'
+        ORDER BY requested_at ASC
+        LIMIT 10
+    """).fetchall()
+
+    return jsonify([dict(c) for c in commands])
+
+
+@app.route("/api/wol/<int:wol_id>/complete", methods=["POST"])
+@require_api_key
+def api_wol_complete(wol_id):
+    """El agente reporta que ejecutó un comando WOL."""
+    data = request.get_json() or {}
+    db = get_db()
+
+    now = datetime.now().isoformat()
+    picked_by = data.get("picked_by", "unknown")
+    result = data.get("result", "sent")
+
+    db.execute("""
+        UPDATE wol_commands
+        SET status = 'completed', picked_by_machine = ?,
+            picked_at = ?, result = ?, completed_at = ?
+        WHERE id = ?
+    """, (picked_by, now, result, now, wol_id))
+    db.commit()
+
+    return jsonify({"status": "ok", "wol_id": wol_id})
+
+
+@app.route("/api/wol/history", methods=["GET"])
+def api_wol_history():
+    """Historial de comandos WOL."""
+    db = get_db()
+    commands = db.execute("""
+        SELECT id, target_machine_id, target_mac, target_hostname,
+               requested_at, status, picked_by_machine, result, completed_at
+        FROM wol_commands
+        ORDER BY requested_at DESC
+        LIMIT 50
+    """).fetchall()
+    return jsonify([dict(c) for c in commands])
 
 
 # ========== Dashboard ==========

@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from collector import collect_full_inventory
 from config import load_config, save_default_config
+from wol import send_magic_packet, check_and_execute_wol
 
 # ---------- Logging ----------
 logger = logging.getLogger("InventoryAgent")
@@ -79,6 +80,11 @@ def send_inventory(config):
                 f"✓ Inventario enviado exitosamente. "
                 f"ID: {result.get('machine_id', 'N/A')}"
             )
+            # Revisar si hay comandos WOL pendientes
+            try:
+                check_and_execute_wol(config)
+            except Exception as e:
+                logger.debug(f"WOL check: {e}")
             return True
         else:
             logger.error(
@@ -214,12 +220,22 @@ def main():
         "--init-config", action="store_true",
         help="Crear archivo config.json con valores por defecto"
     )
+    parser.add_argument(
+        "--wol", type=str, metavar="MAC",
+        help="Enviar Wake-on-LAN a una MAC address (ej: AA:BB:CC:DD:EE:FF)"
+    )
 
     args = parser.parse_args()
     config = load_config()
     setup_logging(config.get("log_file", "agent.log"))
 
-    if args.init_config:
+    if args.wol:
+        print(f"Enviando Wake-on-LAN a {args.wol}...")
+        if send_magic_packet(args.wol):
+            print("✓ Magic packet enviado.")
+        else:
+            print("✗ Error enviando magic packet.")
+    elif args.init_config:
         save_default_config()
     elif args.install:
         install_as_task()
