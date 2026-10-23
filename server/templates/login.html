@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PC Inventory - Login</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0f1117;
+            --surface: #1a1d27;
+            --border: #2a2e3a;
+            --text: #e4e6eb;
+            --text-dim: #8b8fa3;
+            --accent: #4f8cff;
+            --accent-hover: #6ba0ff;
+            --red: #f87171;
+            --green: #34d399;
+            --radius: 10px;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .login-container {
+            width: 100%;
+            max-width: 400px;
+            padding: 20px;
+        }
+        .login-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 40px 32px;
+        }
+        .login-header {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+        .login-header .icon {
+            font-size: 48px;
+            margin-bottom: 12px;
+        }
+        .login-header h1 {
+            font-size: 22px;
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
+        .login-header p {
+            color: var(--text-dim);
+            font-size: 14px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-dim);
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .form-group input {
+            width: 100%;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 14px;
+            color: var(--text);
+            font-size: 15px;
+            font-family: inherit;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .form-group input:focus {
+            border-color: var(--accent);
+        }
+        .form-group input::placeholder {
+            color: #555;
+        }
+        .login-btn {
+            width: 100%;
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 15px;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            transition: background 0.2s, transform 0.1s;
+            margin-top: 8px;
+        }
+        .login-btn:hover {
+            background: var(--accent-hover);
+        }
+        .login-btn:active {
+            transform: scale(0.98);
+        }
+        .error-msg {
+            background: rgba(248, 113, 113, 0.12);
+            border: 1px solid rgba(248, 113, 113, 0.3);
+            border-radius: 8px;
+            padding: 10px 14px;
+            color: var(--red);
+            font-size: 13px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .footer-text {
+            text-align: center;
+            margin-top: 24px;
+            font-size: 12px;
+            color: var(--text-dim);
+        }
+        .footer-text a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+        .security-badge {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            margin-top: 20px;
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+        .security-badge .lock { color: var(--green); }
+    </style>
+</head>
+<body>
+
+<div class="login-container">
+    <div class="login-card">
+        <div class="login-header">
+            <div class="icon">&#128187;</div>
+            <h1>PC Inventory</h1>
+            <p>Panel de administraci&oacute;n de inventario</p>
+        </div>
+
+        {% if error %}
+        <div class="error-msg">{{ error }}</div>
+        {% endif %}
+
+        <form method="POST" action="/login" autocomplete="on">
+            <div class="form-group">
+                <label for="username">Usuario</label>
+                <input type="text" id="username" name="username"
+                       placeholder="admin" autocomplete="username"
+                       required autofocus>
+            </div>
+            <div class="form-group">
+                <label for="password">Contrase&ntilde;a</label>
+                <input type="password" id="password" name="password"
+                       placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;"
+                       autocomplete="current-password" required>
+            </div>
+            <button type="submit" class="login-btn">Iniciar sesi&oacute;n</button>
+        </form>
+
+        <div class="security-badge">
+            <span class="lock">&#128274;</span>
+            <span>Conexi&oacute;n protegida | Sesi&oacute;n de 8 horas</span>
+        </div>
+    </div>
+    <div class="footer-text">
+        ITDeskManager &mdash; PC Inventory Agent v1.1.0
+    </div>
+</div>
+
+</body>
+</html>

@@ -373,11 +373,16 @@
 <body>
 
 <div class="header">
-    <h1><span>🖥️</span> PC Inventory</h1>
+    <h1><span>&#128187;</span> PC Inventory</h1>
     <div class="header-right">
         <input type="text" class="search-box" id="searchBox"
                placeholder="Buscar por hostname, modelo...">
-        <button class="refresh-btn" onclick="loadData()">↻ Actualizar</button>
+        <button class="refresh-btn" onclick="loadData()">&#8635; Actualizar</button>
+        <div style="display:flex;align-items:center;gap:10px;margin-left:8px;padding-left:16px;border-left:1px solid var(--border)">
+            <span style="font-size:13px;color:var(--text-dim)">{{ username }}</span>
+            <a href="/settings" style="color:var(--text-dim);font-size:16px;text-decoration:none" title="Configuraci&oacute;n">&#9881;&#65039;</a>
+            <a href="/logout" style="color:var(--red);font-size:13px;text-decoration:none;font-weight:500" title="Cerrar sesi&oacute;n">Salir</a>
+        </div>
     </div>
 </div>
 

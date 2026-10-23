@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PC Inventory - Configuraci&oacute;n</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0f1117;
+            --surface: #1a1d27;
+            --surface-hover: #222632;
+            --border: #2a2e3a;
+            --text: #e4e6eb;
+            --text-dim: #8b8fa3;
+            --accent: #4f8cff;
+            --accent-hover: #6ba0ff;
+            --green: #34d399;
+            --red: #f87171;
+            --yellow: #fbbf24;
+            --radius: 10px;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+        .header {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 16px 28px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .header h1 { font-size: 20px; font-weight: 700; }
+        .header a {
+            color: var(--accent);
+            text-decoration: none;
+            font-size: 14px;
+        }
+        .main {
+            max-width: 600px;
+            margin: 40px auto;
+            padding: 0 20px;
+        }
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 28px;
+            margin-bottom: 24px;
+        }
+        .card h2 {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: var(--accent);
+        }
+        .form-group {
+            margin-bottom: 16px;
+        }
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-dim);
+            margin-bottom: 6px;
+        }
+        .form-group input {
+            width: 100%;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 12px;
+            color: var(--text);
+            font-size: 14px;
+            font-family: inherit;
+            outline: none;
+        }
+        .form-group input:focus { border-color: var(--accent); }
+        .btn {
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            padding: 10px 20px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        .btn:hover { background: var(--accent-hover); }
+        .flash {
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            margin-bottom: 20px;
+        }
+        .flash.success {
+            background: rgba(52,211,153,0.12);
+            border: 1px solid rgba(52,211,153,0.3);
+            color: var(--green);
+        }
+        .flash.error {
+            background: rgba(248,113,113,0.12);
+            border: 1px solid rgba(248,113,113,0.3);
+            color: var(--red);
+        }
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--border);
+            font-size: 14px;
+        }
+        .info-row:last-child { border-bottom: none; }
+        .info-row .label { color: var(--text-dim); }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>&#9881;&#65039; Configuraci&oacute;n</h1>
+    <a href="/">&larr; Volver al dashboard</a>
+</div>
+
+<div class="main">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+        <div class="flash {{ category }}">{{ message }}</div>
+        {% endfor %}
+    {% endif %}
+    {% endwith %}
+
+    <div class="card">
+        <h2>&#128100; Perfil</h2>
+        <div class="info-row">
+            <span class="label">Usuario</span>
+            <span>{{ username }}</span>
+        </div>
+        <div class="info-row">
+            <span class="label">Nombre</span>
+            <span>{{ display_name }}</span>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>&#128272; Cambiar contrase&ntilde;a</h2>
+        <form method="POST" action="/change-password">
+            <div class="form-group">
+                <label>Contrase&ntilde;a actual</label>
+                <input type="password" name="current_password" required
+                       autocomplete="current-password">
+            </div>
+            <div class="form-group">
+                <label>Nueva contrase&ntilde;a (m&iacute;nimo 8 caracteres)</label>
+                <input type="password" name="new_password" required
+                       minlength="8" autocomplete="new-password">
+            </div>
+            <div class="form-group">
+                <label>Confirmar nueva contrase&ntilde;a</label>
+                <input type="password" name="confirm_password" required
+                       minlength="8" autocomplete="new-password">
+            </div>
+            <button type="submit" class="btn">Actualizar contrase&ntilde;a</button>
+        </form>
+    </div>
+</div>
+
+</body>
+</html>

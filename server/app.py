@@ -1,26 +1,88 @@
 """
 PC Inventory Server
 Servidor Flask que recibe reportes de los agentes y muestra un dashboard.
+Incluye autenticación, rate limiting y headers de seguridad.
 """
 
 import os
+import sys
 import json
 import sqlite3
 import hashlib
-from datetime import datetime
+import secrets
+import time
+import logging
+from datetime import datetime, timedelta
 from functools import wraps
+from collections import defaultdict
 
 from flask import (
-    Flask, request, jsonify, render_template, g, redirect, url_for, flash
+    Flask, request, jsonify, render_template, g, redirect, url_for,
+    flash, session, abort
 )
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "inventory-secret-change-me")
+app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(32))
+app.permanent_session_lifetime = timedelta(hours=8)
 
-# Railway: usa volumen persistente si existe, sino directorio local
-_data_dir = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", os.path.dirname(os.path.abspath(__file__)))
+# ---------- Configuración ----------
+_data_dir = os.environ.get("DATA_DIR", os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(_data_dir, "inventory.db")
 API_KEY = os.environ.get("INVENTORY_API_KEY", "change-me-on-first-run")
+DASHBOARD_PORT = int(os.environ.get("PORT", 8086))
+ALLOWED_NETWORKS = os.environ.get("ALLOWED_NETWORKS", "").split(",")  # ej: "192.168.1.0/24,10.0.0.0/8"
+
+# ---------- Logging ----------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler(os.path.join(_data_dir, "server.log"), encoding="utf-8"),
+        logging.StreamHandler(sys.stdout),
+    ],
+)
+logger = logging.getLogger("InventoryServer")
+
+# ---------- Rate Limiting (in-memory) ----------
+_rate_limits = defaultdict(list)  # ip -> [timestamps]
+RATE_LIMIT_WINDOW = 60   # segundos
+RATE_LIMIT_MAX_API = 30  # máx requests API por ventana
+RATE_LIMIT_MAX_LOGIN = 5  # máx intentos login por ventana
+
+
+# ========== Rate Limiting ==========
+def _check_rate_limit(key, max_requests):
+    """Retorna True si el request está dentro del límite."""
+    now = time.time()
+    # Limpiar entradas viejas
+    _rate_limits[key] = [t for t in _rate_limits[key] if now - t < RATE_LIMIT_WINDOW]
+    if len(_rate_limits[key]) >= max_requests:
+        return False
+    _rate_limits[key].append(now)
+    return True
+
+
+# ========== Security Headers ==========
+@app.after_request
+def add_security_headers(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    # CSP: solo permite recursos del mismo origen + Google Fonts
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src https://fonts.gstatic.com; "
+        "img-src 'self' data:; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none'"
+    )
+    return response
 
 
 # ========== Database ==========
@@ -147,6 +209,34 @@ def init_db():
             FOREIGN KEY (target_machine_id) REFERENCES machines(id)
         );
 
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            display_name TEXT,
+            role TEXT DEFAULT 'admin',
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT,
+            last_login TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            user TEXT,
+            ip TEXT,
+            action TEXT NOT NULL,
+            detail TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS login_attempts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ip TEXT NOT NULL,
+            username TEXT,
+            success INTEGER DEFAULT 0,
+            attempted_at TEXT NOT NULL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_machines_hostname
             ON machines(hostname);
         CREATE INDEX IF NOT EXISTS idx_software_machine
@@ -155,19 +245,208 @@ def init_db():
             ON disks(machine_id);
         CREATE INDEX IF NOT EXISTS idx_wol_status
             ON wol_commands(status);
+        CREATE INDEX IF NOT EXISTS idx_audit_timestamp
+            ON audit_log(timestamp);
+        CREATE INDEX IF NOT EXISTS idx_login_attempts_ip
+            ON login_attempts(ip, attempted_at);
     """)
+
+    # Crear usuario admin por defecto si no existe ninguno
+    existing = db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    if existing == 0:
+        default_user = os.environ.get("ADMIN_USER", "admin")
+        default_pass = os.environ.get("ADMIN_PASSWORD", "")
+        if not default_pass:
+            default_pass = secrets.token_urlsafe(12)
+            logger.info("=" * 60)
+            logger.info("  PRIMER INICIO - CREDENCIALES DE ACCESO")
+            logger.info(f"  Usuario: {default_user}")
+            logger.info(f"  Contraseña: {default_pass}")
+            logger.info("  ¡CAMBIA ESTA CONTRASEÑA DESPUÉS DEL PRIMER LOGIN!")
+            logger.info("=" * 60)
+
+        db.execute(
+            "INSERT INTO users (username, password_hash, display_name, role, created_at) "
+            "VALUES (?, ?, ?, 'superadmin', ?)",
+            (default_user, generate_password_hash(default_pass), "Administrador",
+             datetime.now().isoformat())
+        )
+        db.commit()
+
     db.close()
 
 
-# ========== Auth ==========
+# ========== Audit Log ==========
+def audit_log(action, detail="", user=None):
+    """Registra una acción en el log de auditoría."""
+    try:
+        db = get_db()
+        db.execute(
+            "INSERT INTO audit_log (timestamp, user, ip, action, detail) VALUES (?, ?, ?, ?, ?)",
+            (datetime.now().isoformat(), user or session.get("username", "system"),
+             request.remote_addr, action, detail[:500])
+        )
+        db.commit()
+    except Exception:
+        pass  # No fallar por auditoría
+
+
+# ========== Auth: API Key (agentes) ==========
 def require_api_key(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         key = request.headers.get("X-API-Key", "")
-        if key != API_KEY:
+        if not key or key != API_KEY:
+            logger.warning(f"API key inválida desde {request.remote_addr}")
             return jsonify({"error": "API key inválida"}), 401
+        # Rate limit para API
+        if not _check_rate_limit(f"api:{request.remote_addr}", RATE_LIMIT_MAX_API):
+            return jsonify({"error": "Rate limit excedido"}), 429
         return f(*args, **kwargs)
     return decorated
+
+
+# ========== Auth: Dashboard (sesión) ==========
+def require_login(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get("logged_in"):
+            if request.is_json or request.path.startswith("/api/"):
+                return jsonify({"error": "No autenticado"}), 401
+            return redirect(url_for("login"))
+        return f(*args, **kwargs)
+    return decorated
+
+
+def _is_ip_blocked(ip):
+    """Verifica si una IP está bloqueada por muchos intentos fallidos."""
+    try:
+        db_conn = sqlite3.connect(DB_PATH)
+        count = db_conn.execute(
+            "SELECT COUNT(*) FROM login_attempts WHERE ip = ? AND success = 0 "
+            "AND attempted_at > datetime('now', '-15 minutes')",
+            (ip,)
+        ).fetchone()[0]
+        db_conn.close()
+        return count >= 10  # Bloquear después de 10 intentos fallidos en 15 min
+    except Exception:
+        return False
+
+
+# ========== Login / Logout ==========
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if session.get("logged_in"):
+        return redirect(url_for("dashboard"))
+
+    error = None
+    if request.method == "POST":
+        ip = request.remote_addr
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+
+        # Rate limit login
+        if not _check_rate_limit(f"login:{ip}", RATE_LIMIT_MAX_LOGIN):
+            error = "Demasiados intentos. Espera 1 minuto."
+            logger.warning(f"Login rate limit excedido: {ip}")
+            return render_template("login.html", error=error), 429
+
+        # IP bloqueada
+        if _is_ip_blocked(ip):
+            error = "IP bloqueada temporalmente por múltiples intentos fallidos."
+            logger.warning(f"IP bloqueada: {ip}")
+            return render_template("login.html", error=error), 403
+
+        db = get_db()
+        user = db.execute(
+            "SELECT * FROM users WHERE username = ? AND is_active = 1",
+            (username,)
+        ).fetchone()
+
+        if user and check_password_hash(user["password_hash"], password):
+            session.permanent = True
+            session["logged_in"] = True
+            session["username"] = user["username"]
+            session["display_name"] = user["display_name"] or user["username"]
+            session["role"] = user["role"]
+            session["user_id"] = user["id"]
+
+            # Actualizar último login
+            db.execute(
+                "UPDATE users SET last_login = ? WHERE id = ?",
+                (datetime.now().isoformat(), user["id"])
+            )
+            # Registrar intento exitoso
+            db.execute(
+                "INSERT INTO login_attempts (ip, username, success, attempted_at) VALUES (?, ?, 1, ?)",
+                (ip, username, datetime.now().isoformat())
+            )
+            db.commit()
+
+            audit_log("login", f"Login exitoso: {username}")
+            logger.info(f"Login exitoso: {username} desde {ip}")
+            return redirect(url_for("dashboard"))
+        else:
+            # Registrar intento fallido
+            db.execute(
+                "INSERT INTO login_attempts (ip, username, success, attempted_at) VALUES (?, ?, 0, ?)",
+                (ip, username, datetime.now().isoformat())
+            )
+            db.commit()
+            error = "Usuario o contraseña incorrectos."
+            logger.warning(f"Login fallido: '{username}' desde {ip}")
+
+    return render_template("login.html", error=error)
+
+
+@app.route("/logout")
+def logout():
+    username = session.get("username", "?")
+    audit_log("logout", f"Logout: {username}")
+    session.clear()
+    return redirect(url_for("login"))
+
+
+@app.route("/change-password", methods=["POST"])
+@require_login
+def change_password():
+    current = request.form.get("current_password", "")
+    new_pass = request.form.get("new_password", "")
+    confirm = request.form.get("confirm_password", "")
+
+    if not new_pass or len(new_pass) < 8:
+        flash("La contraseña debe tener al menos 8 caracteres.", "error")
+        return redirect(url_for("settings_page"))
+
+    if new_pass != confirm:
+        flash("Las contraseñas no coinciden.", "error")
+        return redirect(url_for("settings_page"))
+
+    db = get_db()
+    user = db.execute(
+        "SELECT * FROM users WHERE id = ?", (session["user_id"],)
+    ).fetchone()
+
+    if not check_password_hash(user["password_hash"], current):
+        flash("Contraseña actual incorrecta.", "error")
+        return redirect(url_for("settings_page"))
+
+    db.execute(
+        "UPDATE users SET password_hash = ? WHERE id = ?",
+        (generate_password_hash(new_pass), session["user_id"])
+    )
+    db.commit()
+    audit_log("change_password", "Contraseña cambiada")
+    flash("Contraseña actualizada exitosamente.", "success")
+    return redirect(url_for("settings_page"))
+
+
+@app.route("/settings")
+@require_login
+def settings_page():
+    return render_template("settings.html",
+                           username=session.get("username"),
+                           display_name=session.get("display_name"))
 
 
 # ========== Helpers ==========
@@ -347,6 +626,7 @@ def api_report():
 
 
 @app.route("/api/machines", methods=["GET"])
+@require_login
 def api_machines():
     """Lista todas las máquinas registradas."""
     db = get_db()
@@ -360,6 +640,7 @@ def api_machines():
 
 
 @app.route("/api/machines/<machine_id>", methods=["GET"])
+@require_login
 def api_machine_detail(machine_id):
     """Detalle completo de una máquina."""
     db = get_db()
@@ -408,6 +689,7 @@ def api_machine_detail(machine_id):
 
 
 @app.route("/api/machines/<machine_id>", methods=["DELETE"])
+@require_login
 def api_delete_machine(machine_id):
     """Elimina una máquina y todos sus datos."""
     db = get_db()
@@ -418,12 +700,15 @@ def api_delete_machine(machine_id):
         "DELETE FROM network_adapters WHERE machine_id = ?", (machine_id,)
     )
     db.execute("DELETE FROM report_log WHERE machine_id = ?", (machine_id,))
+    hostname = db.execute("SELECT hostname FROM machines WHERE id = ?", (machine_id,)).fetchone()
     db.execute("DELETE FROM machines WHERE id = ?", (machine_id,))
     db.commit()
+    audit_log("delete_machine", f"Eliminado: {hostname['hostname'] if hostname else machine_id}")
     return jsonify({"status": "deleted", "machine_id": machine_id})
 
 
 @app.route("/api/stats", methods=["GET"])
+@require_login
 def api_stats():
     """Estadísticas generales del inventario."""
     db = get_db()
@@ -468,6 +753,7 @@ def api_stats():
 
 # ========== Wake-on-LAN ==========
 @app.route("/api/wol/<machine_id>", methods=["POST"])
+@require_login
 def api_wol_request(machine_id):
     """Solicita encender un equipo via Wake-on-LAN."""
     db = get_db()
@@ -516,10 +802,12 @@ def api_wol_request(machine_id):
 
     db.execute("""
         INSERT INTO wol_commands (target_machine_id, target_mac,
-            target_hostname, requested_at, status)
-        VALUES (?, ?, ?, ?, 'pending')
-    """, (machine_id, mac, machine["hostname"], now))
+            target_hostname, requested_at, requested_by, status)
+        VALUES (?, ?, ?, ?, ?, 'pending')
+    """, (machine_id, mac, machine["hostname"], now,
+          session.get("username", "dashboard")))
     db.commit()
+    audit_log("wol_request", f"WOL solicitado: {machine['hostname']} ({mac})")
 
     return jsonify({
         "status": "queued",
@@ -570,6 +858,7 @@ def api_wol_complete(wol_id):
 
 
 @app.route("/api/wol/history", methods=["GET"])
+@require_login
 def api_wol_history():
     """Historial de comandos WOL."""
     db = get_db()
@@ -583,15 +872,97 @@ def api_wol_history():
     return jsonify([dict(c) for c in commands])
 
 
+# ========== Audit API ==========
+@app.route("/api/audit", methods=["GET"])
+@require_login
+def api_audit():
+    """Retorna las últimas acciones del log de auditoría."""
+    db = get_db()
+    limit = min(int(request.args.get("limit", 100)), 500)
+    rows = db.execute(
+        "SELECT * FROM audit_log ORDER BY timestamp DESC LIMIT ?", (limit,)
+    ).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/users", methods=["GET"])
+@require_login
+def api_users():
+    """Lista usuarios (solo superadmin)."""
+    if session.get("role") != "superadmin":
+        return jsonify({"error": "Sin permisos"}), 403
+    db = get_db()
+    rows = db.execute(
+        "SELECT id, username, display_name, role, is_active, created_at, last_login "
+        "FROM users ORDER BY username"
+    ).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/users", methods=["POST"])
+@require_login
+def api_create_user():
+    """Crear un nuevo usuario (solo superadmin)."""
+    if session.get("role") != "superadmin":
+        return jsonify({"error": "Sin permisos"}), 403
+
+    data = request.get_json()
+    username = data.get("username", "").strip().lower()
+    password = data.get("password", "")
+    display_name = data.get("display_name", username)
+
+    if not username or not password:
+        return jsonify({"error": "Username y password requeridos"}), 400
+    if len(password) < 8:
+        return jsonify({"error": "Contraseña mínimo 8 caracteres"}), 400
+
+    db = get_db()
+    existing = db.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
+    if existing:
+        return jsonify({"error": "Usuario ya existe"}), 409
+
+    db.execute(
+        "INSERT INTO users (username, password_hash, display_name, role, created_at) "
+        "VALUES (?, ?, ?, 'admin', ?)",
+        (username, generate_password_hash(password), display_name,
+         datetime.now().isoformat())
+    )
+    db.commit()
+    audit_log("create_user", f"Usuario creado: {username}")
+    return jsonify({"status": "ok", "username": username})
+
+
+@app.route("/api/users/<int:user_id>", methods=["DELETE"])
+@require_login
+def api_delete_user(user_id):
+    """Desactivar usuario (solo superadmin)."""
+    if session.get("role") != "superadmin":
+        return jsonify({"error": "Sin permisos"}), 403
+    if user_id == session.get("user_id"):
+        return jsonify({"error": "No puedes eliminarte a ti mismo"}), 400
+
+    db = get_db()
+    db.execute("UPDATE users SET is_active = 0 WHERE id = ?", (user_id,))
+    db.commit()
+    audit_log("delete_user", f"Usuario desactivado: ID {user_id}")
+    return jsonify({"status": "ok"})
+
+
 # ========== Dashboard ==========
 @app.route("/")
+@require_login
 def dashboard():
-    return render_template("dashboard.html")
+    return render_template("dashboard.html",
+                           username=session.get("display_name", "Admin"),
+                           role=session.get("role", "admin"))
 
 
 @app.route("/machine/<machine_id>")
+@require_login
 def machine_detail_page(machine_id):
-    return render_template("dashboard.html", machine_id=machine_id)
+    return render_template("dashboard.html", machine_id=machine_id,
+                           username=session.get("display_name", "Admin"),
+                           role=session.get("role", "admin"))
 
 
 # ========== Init ==========
@@ -600,6 +971,14 @@ with app.app_context():
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5050))
     debug = os.environ.get("FLASK_DEBUG", "0") == "1"
-    app.run(host="0.0.0.0", port=port, debug=debug)
+
+    print("=" * 60)
+    print("  PC Inventory Server - ITDeskManager")
+    print(f"  Puerto: {DASHBOARD_PORT}")
+    print(f"  Base de datos: {DB_PATH}")
+    print(f"  Debug: {debug}")
+    print(f"  URL: http://0.0.0.0:{DASHBOARD_PORT}")
+    print("=" * 60)
+
+    app.run(host="0.0.0.0", port=DASHBOARD_PORT, debug=debug)
