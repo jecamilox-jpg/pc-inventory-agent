@@ -1,0 +1,112 @@
+============================================================
+  PC INVENTORY AGENT - GUIA DE COMPILACION Y DESPLIEGUE MSI
+  ITDeskManager v1.1.0
+============================================================
+
+REQUISITOS PARA COMPILAR
+-------------------------
+1. Windows 10/11 con Python 3.8+ instalado
+2. (Opcional) WiX Toolset v3.11+ para generar MSI
+   - Descargar: https://wixtoolset.org/docs/wix3/
+   - O via dotnet: dotnet tool install --global wix
+
+PASO 1: COMPILAR EL .EXE + MSI
+-------------------------------
+Abrir PowerShell como Administrador y ejecutar:
+
+  cd msi_build
+  .\build_msi.ps1 -ServerUrl "https://TU-APP.up.railway.app" -ApiKey "TU-API-KEY"
+
+Esto genera en la carpeta msi_build\dist\:
+  - PCInventoryAgent.exe    (agente compilado, no requiere Python)
+  - config.json             (configuracion con tu servidor)
+  - install_silent.ps1      (instalador silencioso)
+  - README.txt
+
+Y si tienes WiX instalado:
+  - PCInventoryAgent.msi    (instalador MSI para GPO)
+
+
+PASO 2: DESPLEGAR EN LA RED
+----------------------------
+
+=== Opcion A: MSI por GPO (recomendado para dominios) ===
+
+1. Copiar PCInventoryAgent.msi a una carpeta compartida:
+   \\servidor\software\PCInventoryAgent\
+
+2. En Group Policy Management:
+   - Crear nueva GPO o editar existente
+   - Computer Configuration > Policies > Software Settings
+   - Software Installation > New > Package
+   - Seleccionar el .msi desde la ruta de red
+   - Tipo: Assigned
+
+3. Los PCs instalarán el agente en el próximo reinicio
+
+
+=== Opcion B: MSI silencioso (via script o remoto) ===
+
+  msiexec /i PCInventoryAgent.msi /qn SERVER_URL="https://..." API_KEY="..."
+
+Parametros MSI:
+  SERVER_URL     - URL del servidor Railway
+  API_KEY        - Clave de autenticación
+  INTERVAL_HOURS - Horas entre reportes (default: 5)
+
+
+=== Opcion C: PowerShell silencioso (sin MSI) ===
+
+1. Copiar la carpeta dist\ a una ubicación de red compartida:
+   \\servidor\software\PCInventoryAgent\
+
+2. En cada PC (o via GPO startup script):
+   powershell -ExecutionPolicy Bypass -File "\\servidor\software\PCInventoryAgent\install_silent.ps1"
+
+
+=== Opcion D: Despliegue masivo automatizado ===
+
+1. Crear archivo pcs.txt con los hostnames (uno por linea):
+   PC-CONTA
+   PC-RRHH
+   PC-GERENCIA
+   PC-ALMACEN
+
+2. Ejecutar:
+   .\deploy_network.ps1 -ComputerList ".\pcs.txt" -SourcePath ".\dist"
+
+   O directamente:
+   .\deploy_network.ps1 -Computers "PC-CONTA,PC-RRHH,PC-GERENCIA" -SourcePath ".\dist"
+
+
+QUE SE INSTALA
+--------------
+- Directorio: C:\Program Files\PCInventoryAgent\
+- Tarea programada: PCInventoryAgent (al iniciar sistema, modo daemon)
+- Tarea programada: PCInventoryAgent_Login (al iniciar sesion, reporte unico)
+- Registro: HKLM\SOFTWARE\ITDeskManager\PCInventoryAgent
+- Entrada en Agregar/Quitar Programas
+
+
+DESINSTALAR
+-----------
+- Desde Panel de Control > Programas > PC Inventory Agent
+- O via MSI:  msiexec /x PCInventoryAgent.msi /qn
+- O via script: powershell -File install_silent.ps1 -Uninstall
+
+
+VERIFICAR INSTALACION
+---------------------
+En cada PC se puede verificar:
+  1. Abrir Programador de Tareas > ver "PCInventoryAgent"
+  2. Revisar C:\Program Files\PCInventoryAgent\logs\agent.log
+  3. El equipo deberia aparecer en el dashboard web
+
+
+NOTAS DE RED
+------------
+- El agente envia datos por HTTPS al servidor Railway
+- Puerto: 443 (HTTPS estándar)
+- No requiere apertura de puertos en el firewall local
+- Si hay proxy corporativo, configurar en config.json:
+  "proxy": "http://proxy.empresa.local:8080"

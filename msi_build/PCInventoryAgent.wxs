@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  PCInventoryAgent - WiX Installer Source
+  Genera un MSI para desplegar el agente en red local via GPO/SCCM/manual
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
+     xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
+
+  <Product Id="*"
+           Name="PC Inventory Agent"
+           Language="1033"
+           Version="1.1.0.0"
+           Manufacturer="ITDeskManager"
+           UpgradeCode="A1B2C3D4-E5F6-7890-ABCD-EF1234567890">
+
+    <Package InstallerVersion="500"
+             Compressed="yes"
+             InstallScope="perMachine"
+             Description="Agente de inventario de PCs - ITDeskManager"
+             Comments="Recopila información del hardware y software del equipo"
+             Platform="x64" />
+
+    <MajorUpgrade DowngradeErrorMessage="Ya existe una versión más reciente instalada." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- ========== Propiedades configurables (vía msiexec /p) ========== -->
+    <Property Id="SERVER_URL" Value="https://tu-servidor.up.railway.app" />
+    <Property Id="API_KEY" Value="tu-api-key-aqui" />
+    <Property Id="INTERVAL_HOURS" Value="5" />
+    <Property Id="SEND_SOFTWARE" Value="1" />
+
+    <!-- ========== Icono ========== -->
+    <Icon Id="agent.ico" SourceFile="agent.ico" />
+    <Property Id="ARPPRODUCTICON" Value="agent.ico" />
+    <Property Id="ARPHELPLINK" Value="https://itdeskmanager.com" />
+
+    <!-- ========== Estructura de directorios ========== -->
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="PCInventoryAgent">
+          <Directory Id="LOGSFOLDER" Name="logs" />
+        </Directory>
+      </Directory>
+    </Directory>
+
+    <!-- ========== Archivos ========== -->
+    <ComponentGroup Id="AgentFiles" Directory="INSTALLFOLDER">
+
+      <!-- Ejecutable principal -->
+      <Component Id="MainExe" Guid="B1C2D3E4-F5A6-7890-1234-567890ABCDEF" Win64="yes">
+        <File Id="PCInventoryAgent.exe"
+              Source="dist\PCInventoryAgent.exe"
+              KeyPath="yes" />
+      </Component>
+
+      <!-- Archivo de configuración (no sobreescribir si existe) -->
+      <Component Id="ConfigFile" Guid="C2D3E4F5-A6B7-8901-2345-67890ABCDEF0" Win64="yes" NeverOverwrite="yes">
+        <File Id="config.json"
+              Source="dist\config.json"
+              KeyPath="yes" />
+      </Component>
+
+      <!-- README -->
+      <Component Id="ReadmeFile" Guid="D3E4F5A6-B7C8-9012-3456-7890ABCDEF01" Win64="yes">
+        <File Id="README.txt"
+              Source="dist\README.txt"
+              KeyPath="yes" />
+      </Component>
+
+    </ComponentGroup>
+
+    <!-- ========== Tarea programada de Windows ========== -->
+    <ComponentGroup Id="ScheduledTasks" Directory="INSTALLFOLDER">
+      <Component Id="ScheduledTask" Guid="E4F5A6B7-C8D9-0123-4567-890ABCDEF012" Win64="yes" KeyPath="yes">
+        <RegistryValue Root="HKLM"
+                       Key="SOFTWARE\ITDeskManager\PCInventoryAgent"
+                       Name="Installed"
+                       Type="integer"
+                       Value="1" />
+        <RegistryValue Root="HKLM"
+                       Key="SOFTWARE\ITDeskManager\PCInventoryAgent"
+                       Name="Version"
+                       Type="string"
+                       Value="1.1.0" />
+        <RegistryValue Root="HKLM"
+                       Key="SOFTWARE\ITDeskManager\PCInventoryAgent"
+                       Name="InstallPath"
+                       Type="string"
+                       Value="[INSTALLFOLDER]" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- ========== Custom Actions ========== -->
+    <!-- Generar config.json con parámetros del MSI -->
+    <CustomAction Id="GenerateConfig"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand='cmd.exe /c echo {"server_url": "[SERVER_URL]", "api_key": "[API_KEY]", "interval_seconds": [INTERVAL_HOURS]00, "send_software": true, "send_updates": true, "verify_ssl": true, "log_file": "logs\\agent.log"} > "[INSTALLFOLDER]config.json"'
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <!-- Crear tarea programada -->
+    <CustomAction Id="CreateScheduledTask"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand='cmd.exe /c schtasks /create /tn "PCInventoryAgent" /tr "\"[INSTALLFOLDER]PCInventoryAgent.exe\" --daemon" /sc onstart /ru SYSTEM /rl HIGHEST /f'
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <!-- Crear tarea de reporte al login -->
+    <CustomAction Id="CreateLoginTask"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand='cmd.exe /c schtasks /create /tn "PCInventoryAgent_Login" /tr "\"[INSTALLFOLDER]PCInventoryAgent.exe\" --once" /sc onlogon /ru SYSTEM /rl HIGHEST /f'
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <!-- Ejecutar primera recolección -->
+    <CustomAction Id="RunFirstCollection"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand='cmd.exe /c start /min "" "[INSTALLFOLDER]PCInventoryAgent.exe" --once'
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="asyncNoWait" />
+
+    <!-- Eliminar tareas al desinstalar -->
+    <CustomAction Id="RemoveScheduledTask"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand='cmd.exe /c schtasks /delete /tn "PCInventoryAgent" /f'
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <CustomAction Id="RemoveLoginTask"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand='cmd.exe /c schtasks /delete /tn "PCInventoryAgent_Login" /f'
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <!-- Detener proceso antes de desinstalar -->
+    <CustomAction Id="StopAgent"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand='cmd.exe /c taskkill /f /im PCInventoryAgent.exe'
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <!-- ========== Secuencia de instalación ========== -->
+    <InstallExecuteSequence>
+      <Custom Action="GenerateConfig" After="InstallFiles">NOT Installed</Custom>
+      <Custom Action="CreateScheduledTask" After="GenerateConfig">NOT Installed</Custom>
+      <Custom Action="CreateLoginTask" After="CreateScheduledTask">NOT Installed</Custom>
+      <Custom Action="RunFirstCollection" After="CreateLoginTask">NOT Installed</Custom>
+      <Custom Action="StopAgent" Before="RemoveFiles">REMOVE="ALL"</Custom>
+      <Custom Action="RemoveScheduledTask" After="StopAgent">REMOVE="ALL"</Custom>
+      <Custom Action="RemoveLoginTask" After="RemoveScheduledTask">REMOVE="ALL"</Custom>
+    </InstallExecuteSequence>
+
+    <!-- ========== Feature principal ========== -->
+    <Feature Id="Complete" Title="PC Inventory Agent" Level="1">
+      <ComponentGroupRef Id="AgentFiles" />
+      <ComponentGroupRef Id="ScheduledTasks" />
+    </Feature>
+
+    <!-- ========== UI Mínima (para instalación silenciosa) ========== -->
+    <UIRef Id="WixUI_Minimal" />
+    <WixVariable Id="WixUILicenseRtf" Value="license.rtf" />
+
+  </Product>
+</Wix>
