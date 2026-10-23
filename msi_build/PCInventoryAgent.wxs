@@ -24,7 +24,7 @@
     <MediaTemplate EmbedCab="yes" />
 
     <!-- ========== Propiedades configurables (vía msiexec /p) ========== -->
-    <Property Id="SERVER_URL" Value="https://tu-servidor.up.railway.app" />
+    <Property Id="SERVER_URL" Value="http://172.16.100.4:8086" />
     <Property Id="API_KEY" Value="tu-api-key-aqui" />
     <Property Id="INTERVAL_HOURS" Value="5" />
     <Property Id="SEND_SOFTWARE" Value="1" />

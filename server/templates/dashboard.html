@@ -4,279 +4,277 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PC Inventory - Dashboard</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <style>
+        @font-face {
+            font-family: 'Century Gothic';
+            src: local('Century Gothic'), local('CenturyGothic');
+        }
         :root {
-            --bg: #0f1117;
-            --surface: #1a1d27;
-            --surface-hover: #222632;
-            --border: #2a2e3a;
-            --text: #e4e6eb;
-            --text-dim: #8b8fa3;
-            --accent: #4f8cff;
-            --accent-hover: #6ba0ff;
-            --green: #34d399;
-            --red: #f87171;
-            --yellow: #fbbf24;
-            --orange: #fb923c;
-            --radius: 10px;
+            --cg-font: 'Century Gothic', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            --primary: #1a73e8;
+            --primary-light: #e8f0fe;
+            --success: #0f9d58;
+            --success-light: #e6f4ea;
+            --danger: #ea4335;
+            --danger-light: #fce8e6;
+            --warning: #f9ab00;
+            --warning-light: #fef7e0;
+            --gray-50: #f8f9fa;
+            --gray-100: #f1f3f4;
+            --gray-200: #e8eaed;
+            --gray-500: #9aa0a6;
+            --gray-700: #5f6368;
+            --gray-900: #202124;
         }
+        * { font-family: var(--cg-font) !important; }
+        body { background: var(--gray-50); color: var(--gray-900); }
 
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-
-        body {
-            font-family: 'Inter', -apple-system, sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            min-height: 100vh;
+        /* Navbar */
+        .navbar {
+            background: #fff;
+            border-bottom: 1px solid var(--gray-200);
+            padding: 0.6rem 1.5rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
         }
-
-        /* Header */
-        .header {
-            background: var(--surface);
-            border-bottom: 1px solid var(--border);
-            padding: 16px 28px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            position: sticky;
-            top: 0;
-            z-index: 100;
-        }
-        .header h1 {
-            font-size: 20px;
+        .navbar-brand {
+            font-size: 1.2rem;
             font-weight: 700;
+            color: var(--primary) !important;
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 8px;
         }
-        .header h1 span { font-size: 22px; }
-        .header-right {
+        .navbar-brand i { font-size: 1.4rem; }
+        .nav-user {
             display: flex;
             align-items: center;
-            gap: 16px;
+            gap: 12px;
+            font-size: 0.85rem;
         }
-        .search-box {
-            background: var(--bg);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 8px 14px;
-            color: var(--text);
-            font-size: 14px;
-            width: 260px;
-            outline: none;
-            transition: border-color 0.2s;
-        }
-        .search-box:focus { border-color: var(--accent); }
-        .refresh-btn {
-            background: var(--accent);
-            color: #fff;
-            border: none;
-            border-radius: 8px;
-            padding: 8px 16px;
-            font-size: 14px;
+        .nav-user .username {
+            color: var(--gray-700);
             font-weight: 500;
-            cursor: pointer;
-            transition: background 0.2s;
         }
-        .refresh-btn:hover { background: var(--accent-hover); }
+        .nav-user a {
+            text-decoration: none;
+            color: var(--gray-500);
+            transition: color 0.15s;
+        }
+        .nav-user a:hover { color: var(--primary); }
+        .nav-user .btn-logout {
+            color: var(--danger);
+            font-weight: 600;
+        }
+        .nav-user .btn-logout:hover { color: #c62828; }
 
-        /* Layout */
-        .main { padding: 24px 28px; max-width: 1400px; margin: 0 auto; }
+        /* Search */
+        .search-box {
+            border: 1px solid var(--gray-200);
+            border-radius: 8px;
+            padding: 6px 14px;
+            font-size: 0.85rem;
+            width: 280px;
+            background: var(--gray-50);
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .search-box:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(26,115,232,0.12);
+            background: #fff;
+            outline: none;
+        }
 
         /* Stats */
-        .stats-row {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 16px;
-            margin-bottom: 28px;
-        }
         .stat-card {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 20px;
+            background: #fff;
+            border: 1px solid var(--gray-200);
+            border-radius: 12px;
+            padding: 20px 22px;
+            transition: box-shadow 0.2s;
         }
-        .stat-card .label {
-            font-size: 12px;
+        .stat-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
+        .stat-card .stat-label {
+            font-size: 0.72rem;
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            color: var(--text-dim);
-            margin-bottom: 6px;
+            color: var(--gray-500);
+            font-weight: 600;
+            margin-bottom: 4px;
         }
-        .stat-card .value {
-            font-size: 28px;
+        .stat-card .stat-value {
+            font-size: 1.75rem;
             font-weight: 700;
         }
-        .stat-card .value.green { color: var(--green); }
-        .stat-card .value.accent { color: var(--accent); }
-        .stat-card .value.yellow { color: var(--yellow); }
+        .stat-card .stat-value.text-primary { color: var(--primary) !important; }
+        .stat-card .stat-value.text-success { color: var(--success) !important; }
+        .stat-card .stat-value.text-warning { color: var(--warning) !important; }
 
-        /* Table */
-        .table-wrap {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
+        /* Table card */
+        .table-card {
+            background: #fff;
+            border: 1px solid var(--gray-200);
+            border-radius: 12px;
             overflow: hidden;
         }
-        .table-header {
-            padding: 16px 20px;
-            border-bottom: 1px solid var(--border);
+        .table-card-header {
+            padding: 16px 22px;
+            border-bottom: 1px solid var(--gray-200);
             display: flex;
             align-items: center;
             justify-content: space-between;
         }
-        .table-header h2 {
-            font-size: 16px;
-            font-weight: 600;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        th {
-            text-align: left;
-            padding: 12px 16px;
-            font-size: 12px;
+        .table-card-header h5 { margin: 0; font-weight: 700; font-size: 1rem; }
+        .table-card-header .badge { font-weight: 500; }
+
+        .table thead th {
+            background: var(--gray-50);
+            font-size: 0.72rem;
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            color: var(--text-dim);
-            border-bottom: 1px solid var(--border);
-            background: var(--bg);
+            color: var(--gray-500);
+            font-weight: 700;
+            border-bottom: 1px solid var(--gray-200);
+            padding: 10px 14px;
+            white-space: nowrap;
+        }
+        .table tbody td {
+            padding: 10px 14px;
+            font-size: 0.85rem;
+            vertical-align: middle;
+            border-bottom: 1px solid var(--gray-100);
+        }
+        .table tbody tr {
+            cursor: pointer;
+            transition: background 0.12s;
+        }
+        .table tbody tr:hover { background: var(--primary-light); }
+
+        /* Status badge */
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 0.78rem;
             font-weight: 600;
+            padding: 3px 10px;
+            border-radius: 20px;
         }
-        td {
-            padding: 12px 16px;
-            font-size: 14px;
-            border-bottom: 1px solid var(--border);
+        .status-badge.online {
+            background: var(--success-light);
+            color: var(--success);
         }
-        tr:hover td { background: var(--surface-hover); }
-        tr { cursor: pointer; transition: background 0.15s; }
-
-        .status-dot {
-            display: inline-block;
-            width: 8px; height: 8px;
+        .status-badge.offline {
+            background: var(--danger-light);
+            color: var(--danger);
+        }
+        .status-badge .dot {
+            width: 7px; height: 7px;
             border-radius: 50%;
-            margin-right: 6px;
-        }
-        .status-dot.online { background: var(--green); box-shadow: 0 0 6px var(--green); }
-        .status-dot.offline { background: var(--red); }
-
-        .badge {
             display: inline-block;
-            padding: 2px 10px;
-            border-radius: 12px;
-            font-size: 12px;
-            font-weight: 500;
         }
-        .badge-type {
-            background: rgba(79,140,255,0.15);
-            color: var(--accent);
-        }
+        .status-badge.online .dot { background: var(--success); }
+        .status-badge.offline .dot { background: var(--danger); }
 
         /* Detail panel */
         .detail-overlay {
             display: none;
             position: fixed;
             inset: 0;
-            background: rgba(0,0,0,0.6);
-            z-index: 200;
+            background: rgba(0,0,0,0.3);
+            z-index: 1040;
+            backdrop-filter: blur(2px);
         }
         .detail-overlay.open { display: block; }
         .detail-panel {
             position: fixed;
             right: 0; top: 0; bottom: 0;
-            width: 680px;
+            width: 700px;
             max-width: 100vw;
-            background: var(--bg);
-            border-left: 1px solid var(--border);
+            background: #fff;
+            border-left: 1px solid var(--gray-200);
             overflow-y: auto;
-            z-index: 201;
+            z-index: 1050;
             transform: translateX(100%);
             transition: transform 0.25s ease;
+            box-shadow: -4px 0 20px rgba(0,0,0,0.08);
         }
         .detail-panel.open { transform: translateX(0); }
 
         .detail-header {
-            padding: 20px 24px;
-            border-bottom: 1px solid var(--border);
+            padding: 18px 24px;
+            border-bottom: 1px solid var(--gray-200);
             display: flex;
             align-items: center;
             justify-content: space-between;
             position: sticky;
             top: 0;
-            background: var(--bg);
+            background: #fff;
             z-index: 10;
         }
-        .detail-header h2 { font-size: 18px; font-weight: 700; }
-        .close-btn {
-            background: none;
-            border: 1px solid var(--border);
-            color: var(--text);
-            width: 32px; height: 32px;
-            border-radius: 8px;
-            font-size: 18px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .close-btn:hover { background: var(--surface); }
+        .detail-header h5 { font-weight: 700; margin: 0; }
 
         .detail-body { padding: 24px; }
 
-        .detail-section {
-            margin-bottom: 28px;
-        }
-        .detail-section h3 {
-            font-size: 14px;
-            font-weight: 600;
-            color: var(--accent);
-            margin-bottom: 14px;
+        .detail-section { margin-bottom: 28px; }
+        .detail-section h6 {
+            font-size: 0.78rem;
+            font-weight: 700;
+            color: var(--primary);
             text-transform: uppercase;
             letter-spacing: 0.5px;
+            margin-bottom: 14px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
         }
+
         .info-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 12px;
+            gap: 10px;
         }
         .info-item {
-            background: var(--surface);
+            background: var(--gray-50);
+            border: 1px solid var(--gray-200);
             border-radius: 8px;
-            padding: 12px 14px;
+            padding: 10px 14px;
         }
         .info-item .lbl {
-            font-size: 11px;
-            color: var(--text-dim);
+            font-size: 0.68rem;
+            color: var(--gray-500);
             text-transform: uppercase;
             letter-spacing: 0.3px;
-            margin-bottom: 4px;
+            font-weight: 600;
+            margin-bottom: 2px;
         }
         .info-item .val {
-            font-size: 14px;
+            font-size: 0.85rem;
             font-weight: 500;
             word-break: break-all;
+            color: var(--gray-900);
         }
         .info-item.full { grid-column: 1 / -1; }
 
         /* Usage bars */
         .usage-bar-wrap {
-            background: var(--surface);
+            background: var(--gray-50);
+            border: 1px solid var(--gray-200);
             border-radius: 8px;
-            padding: 14px;
-            margin-bottom: 10px;
+            padding: 12px 14px;
+            margin-bottom: 8px;
         }
         .usage-bar-label {
             display: flex;
             justify-content: space-between;
-            font-size: 13px;
+            font-size: 0.78rem;
             margin-bottom: 6px;
+            font-weight: 500;
         }
         .usage-bar {
             height: 8px;
-            background: var(--border);
+            background: var(--gray-200);
             border-radius: 4px;
             overflow: hidden;
         }
@@ -287,132 +285,140 @@
         }
 
         /* Software table */
-        .sw-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 13px;
-        }
-        .sw-table th {
-            padding: 8px 10px;
-            font-size: 11px;
-        }
-        .sw-table td {
-            padding: 6px 10px;
-            font-size: 13px;
-        }
+        .sw-table { font-size: 0.8rem; }
+        .sw-table th { font-size: 0.68rem; padding: 6px 10px; }
+        .sw-table td { padding: 5px 10px; font-size: 0.8rem; }
         .sw-search {
-            background: var(--bg);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            padding: 6px 10px;
-            color: var(--text);
-            font-size: 13px;
+            border: 1px solid var(--gray-200);
+            border-radius: 8px;
+            padding: 6px 12px;
+            font-size: 0.82rem;
             width: 100%;
             margin-bottom: 10px;
-            outline: none;
+            background: var(--gray-50);
         }
-
-        /* Responsive */
-        @media (max-width: 768px) {
-            .header { padding: 12px 16px; }
-            .main { padding: 16px; }
-            .search-box { width: 160px; }
-            .detail-panel { width: 100vw; }
-            .info-grid { grid-template-columns: 1fr; }
-            .stats-row { grid-template-columns: repeat(2, 1fr); }
+        .sw-search:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(26,115,232,0.12);
         }
 
         /* WOL Button */
         .wol-btn {
-            background: var(--green);
-            color: #000;
-            border: none;
-            border-radius: 8px;
-            padding: 10px 20px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            display: inline-flex;
+            display: flex;
             align-items: center;
-            gap: 8px;
-            transition: all 0.2s;
-            width: 100%;
             justify-content: center;
-            margin-bottom: 20px;
+            gap: 8px;
+            width: 100%;
+            padding: 10px;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 0.85rem;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 6px;
         }
-        .wol-btn:hover { background: #2fc48b; transform: translateY(-1px); }
+        .wol-btn.btn-wol-ready {
+            background: var(--success);
+            color: #fff;
+        }
+        .wol-btn.btn-wol-ready:hover {
+            background: #0c8c4e;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(15,157,88,0.3);
+        }
         .wol-btn:disabled {
-            background: var(--border);
-            color: var(--text-dim);
+            background: var(--gray-200);
+            color: var(--gray-500);
             cursor: not-allowed;
             transform: none;
+            box-shadow: none;
         }
-        .wol-btn.sending { background: var(--yellow); color: #000; }
-        .wol-btn.sent { background: var(--accent); color: #fff; }
+        .wol-btn.sending { background: var(--warning); color: #000; }
+        .wol-btn.sent { background: var(--primary); color: #fff; }
         .wol-notice {
-            font-size: 12px;
-            color: var(--text-dim);
+            font-size: 0.72rem;
+            color: var(--gray-500);
             text-align: center;
-            margin-top: -14px;
-            margin-bottom: 20px;
+            margin-bottom: 18px;
         }
 
-        .loading {
-            text-align: center;
-            padding: 60px;
-            color: var(--text-dim);
-        }
         .empty-state {
             text-align: center;
-            padding: 80px 20px;
-            color: var(--text-dim);
+            padding: 60px 20px;
+            color: var(--gray-500);
         }
-        .empty-state p { margin-top: 12px; font-size: 14px; }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .search-box { width: 140px; }
+            .detail-panel { width: 100vw; }
+            .info-grid { grid-template-columns: 1fr; }
+            .nav-user .username { display: none; }
+        }
     </style>
 </head>
 <body>
 
-<div class="header">
-    <h1><span>&#128187;</span> PC Inventory</h1>
-    <div class="header-right">
+<!-- Navbar -->
+<nav class="navbar sticky-top">
+    <a class="navbar-brand" href="/">
+        <i class="bi bi-pc-display-horizontal"></i> PC Inventory
+    </a>
+    <div class="d-flex align-items-center gap-3">
         <input type="text" class="search-box" id="searchBox"
-               placeholder="Buscar por hostname, modelo...">
-        <button class="refresh-btn" onclick="loadData()">&#8635; Actualizar</button>
-        <div style="display:flex;align-items:center;gap:10px;margin-left:8px;padding-left:16px;border-left:1px solid var(--border)">
-            <span style="font-size:13px;color:var(--text-dim)">{{ username }}</span>
-            <a href="/settings" style="color:var(--text-dim);font-size:16px;text-decoration:none" title="Configuraci&oacute;n">&#9881;&#65039;</a>
-            <a href="/logout" style="color:var(--red);font-size:13px;text-decoration:none;font-weight:500" title="Cerrar sesi&oacute;n">Salir</a>
+               placeholder="Buscar hostname, modelo...">
+        <button class="btn btn-sm btn-primary" onclick="loadData()" style="border-radius:8px;font-weight:600">
+            <i class="bi bi-arrow-clockwise"></i> Actualizar
+        </button>
+        <div class="nav-user" style="padding-left:12px;border-left:1px solid var(--gray-200)">
+            <span class="username"><i class="bi bi-person-circle"></i> {{ username }}</span>
+            <a href="/settings" title="Configuraci&oacute;n"><i class="bi bi-gear"></i></a>
+            <a href="/logout" class="btn-logout" title="Cerrar sesi&oacute;n"><i class="bi bi-box-arrow-right"></i> Salir</a>
         </div>
     </div>
-</div>
+</nav>
 
-<div class="main">
-    <div class="stats-row" id="statsRow">
-        <div class="stat-card">
-            <div class="label">Total equipos</div>
-            <div class="value accent" id="statTotal">-</div>
+<!-- Main -->
+<div class="container-fluid px-4 py-4" style="max-width:1440px">
+
+    <!-- Stats -->
+    <div class="row g-3 mb-4" id="statsRow">
+        <div class="col-6 col-md-3">
+            <div class="stat-card">
+                <div class="stat-label">Total equipos</div>
+                <div class="stat-value text-primary" id="statTotal">-</div>
+            </div>
         </div>
-        <div class="stat-card">
-            <div class="label">En línea</div>
-            <div class="value green" id="statOnline">-</div>
+        <div class="col-6 col-md-3">
+            <div class="stat-card">
+                <div class="stat-label">En l&iacute;nea</div>
+                <div class="stat-value text-success" id="statOnline">-</div>
+            </div>
         </div>
-        <div class="stat-card">
-            <div class="label">Software único</div>
-            <div class="value yellow" id="statSoftware">-</div>
+        <div class="col-6 col-md-3">
+            <div class="stat-card">
+                <div class="stat-label">Software &uacute;nico</div>
+                <div class="stat-value text-warning" id="statSoftware">-</div>
+            </div>
         </div>
-        <div class="stat-card">
-            <div class="label">RAM total</div>
-            <div class="value" id="statRam">-</div>
+        <div class="col-6 col-md-3">
+            <div class="stat-card">
+                <div class="stat-label">RAM total</div>
+                <div class="stat-value" id="statRam">-</div>
+            </div>
         </div>
     </div>
 
-    <div class="table-wrap">
-        <div class="table-header">
-            <h2>Equipos registrados</h2>
-            <span id="machineCount" style="color:var(--text-dim);font-size:13px"></span>
+    <!-- Table -->
+    <div class="table-card">
+        <div class="table-card-header">
+            <h5><i class="bi bi-hdd-stack me-2"></i>Equipos registrados</h5>
+            <span class="badge bg-light text-dark border" id="machineCount"></span>
         </div>
-        <div style="overflow-x:auto">
-            <table>
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
                 <thead>
                     <tr>
                         <th>Estado</th>
@@ -423,11 +429,11 @@
                         <th>CPU</th>
                         <th>RAM</th>
                         <th>Usuario</th>
-                        <th>Último reporte</th>
+                        <th>&Uacute;ltimo reporte</th>
                     </tr>
                 </thead>
                 <tbody id="machinesBody">
-                    <tr><td colspan="9" class="loading">Cargando...</td></tr>
+                    <tr><td colspan="9" class="text-center py-5 text-muted">Cargando...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -438,11 +444,13 @@
 <div class="detail-overlay" id="detailOverlay" onclick="closeDetail()"></div>
 <div class="detail-panel" id="detailPanel">
     <div class="detail-header">
-        <h2 id="detailTitle">Detalle</h2>
-        <button class="close-btn" onclick="closeDetail()">✕</button>
+        <h5 id="detailTitle">Detalle</h5>
+        <button class="btn btn-sm btn-outline-secondary" onclick="closeDetail()" style="border-radius:8px">
+            <i class="bi bi-x-lg"></i>
+        </button>
     </div>
     <div class="detail-body" id="detailBody">
-        <div class="loading">Cargando...</div>
+        <div class="text-center py-5 text-muted">Cargando...</div>
     </div>
 </div>
 
@@ -457,49 +465,47 @@ async function loadData() {
         ]);
         const stats = await statsRes.json();
         const machines = await machinesRes.json();
-
         allMachines = machines;
 
         document.getElementById('statTotal').textContent = stats.total_machines;
         document.getElementById('statOnline').textContent = stats.online_machines;
         document.getElementById('statSoftware').textContent = stats.total_unique_software;
         document.getElementById('statRam').textContent = stats.total_ram_gb + ' GB';
-        document.getElementById('machineCount').textContent =
-            machines.length + ' equipo(s)';
+        document.getElementById('machineCount').textContent = machines.length + ' equipo(s)';
 
         renderMachines(machines);
     } catch (e) {
         document.getElementById('machinesBody').innerHTML =
-            '<tr><td colspan="9" class="empty-state">' +
-            '<p>⚠ Error conectando con el servidor</p></td></tr>';
+            '<tr><td colspan="9" class="empty-state"><i class="bi bi-exclamation-triangle" style="font-size:2rem"></i><p class="mt-2">Error conectando con el servidor</p></td></tr>';
     }
 }
 
 function renderMachines(machines) {
     const tbody = document.getElementById('machinesBody');
-
     if (!machines.length) {
         tbody.innerHTML =
             '<tr><td colspan="9" class="empty-state">' +
-            '<p>🖥️ Sin equipos registrados</p>' +
-            '<p>Instala el agente en tus PCs para comenzar</p></td></tr>';
+            '<i class="bi bi-pc-display" style="font-size:2.5rem;color:var(--gray-200)"></i>' +
+            '<p class="mt-2">Sin equipos registrados</p>' +
+            '<p style="font-size:0.82rem">Instala el agente en tus PCs para comenzar</p></td></tr>';
         return;
     }
-
     tbody.innerHTML = machines.map(m => `
         <tr onclick="openDetail('${m.id}')">
             <td>
-                <span class="status-dot ${m.is_online ? 'online' : 'offline'}"></span>
-                ${m.is_online ? 'Online' : 'Offline'}
+                <span class="status-badge ${m.is_online ? 'online' : 'offline'}">
+                    <span class="dot"></span>
+                    ${m.is_online ? 'Online' : 'Offline'}
+                </span>
             </td>
             <td><strong>${esc(m.hostname)}</strong></td>
             <td>${esc(m.manufacturer || '')} ${esc(m.model || '')}</td>
-            <td style="font-family:monospace;font-size:12px">${esc(m.serial_number || '-')}</td>
-            <td style="font-size:12px">${esc(shortOS(m.os_edition))}</td>
-            <td style="font-size:12px">${esc(shortCPU(m.cpu_name))}</td>
+            <td><code style="font-size:0.75rem">${esc(m.serial_number || '-')}</code></td>
+            <td style="font-size:0.78rem">${esc(shortOS(m.os_edition))}</td>
+            <td style="font-size:0.78rem">${esc(shortCPU(m.cpu_name))}</td>
             <td>${m.ram_total_gb || 0} GB</td>
             <td>${esc(m.logged_user || '-')}</td>
-            <td style="font-size:12px;color:var(--text-dim)">${timeAgo(m.last_seen)}</td>
+            <td style="font-size:0.78rem;color:var(--gray-500)">${timeAgo(m.last_seen)}</td>
         </tr>
     `).join('');
 }
@@ -507,8 +513,7 @@ function renderMachines(machines) {
 async function openDetail(id) {
     document.getElementById('detailOverlay').classList.add('open');
     document.getElementById('detailPanel').classList.add('open');
-    document.getElementById('detailBody').innerHTML =
-        '<div class="loading">Cargando detalle...</div>';
+    document.getElementById('detailBody').innerHTML = '<div class="text-center py-5 text-muted">Cargando detalle...</div>';
 
     try {
         const res = await fetch(`/api/machines/${id}`);
@@ -516,8 +521,7 @@ async function openDetail(id) {
         document.getElementById('detailTitle').textContent = m.hostname;
         renderDetail(m);
     } catch (e) {
-        document.getElementById('detailBody').innerHTML =
-            '<div class="loading">Error cargando detalle</div>';
+        document.getElementById('detailBody').innerHTML = '<div class="text-center py-5 text-muted">Error cargando detalle</div>';
     }
 }
 
@@ -526,19 +530,18 @@ function renderDetail(m) {
     const gpu = (m.gpu || []).map(g => g.name).join(', ') || '-';
     const machineId = m.id;
 
-    // Botón WOL (solo si está offline)
     let wolHtml = '';
     if (!m.is_online) {
         wolHtml = `
-        <button class="wol-btn" id="wolBtn" onclick="sendWOL('${machineId}')">
-            ⚡ Encender equipo (Wake-on-LAN)
+        <button class="wol-btn btn-wol-ready" id="wolBtn" onclick="sendWOL('${machineId}')">
+            <i class="bi bi-lightning-charge-fill"></i> Encender equipo (Wake-on-LAN)
         </button>
         <p class="wol-notice">Requiere un agente online en la misma red local y WOL habilitado en BIOS</p>`;
     }
 
     let html = wolHtml + `
     <div class="detail-section">
-        <h3>🖥️ Sistema</h3>
+        <h6><i class="bi bi-display"></i> Sistema</h6>
         <div class="info-grid">
             <div class="info-item">
                 <div class="lbl">Hostname</div>
@@ -564,7 +567,7 @@ function renderDetail(m) {
     </div>
 
     <div class="detail-section">
-        <h3>🔧 Hardware</h3>
+        <h6><i class="bi bi-cpu"></i> Hardware</h6>
         <div class="info-grid">
             <div class="info-item">
                 <div class="lbl">Fabricante</div>
@@ -576,7 +579,7 @@ function renderDetail(m) {
             </div>
             <div class="info-item">
                 <div class="lbl">Serial</div>
-                <div class="val" style="font-family:monospace">${esc(m.serial_number || '-')}</div>
+                <div class="val" style="font-family:monospace !important">${esc(m.serial_number || '-')}</div>
             </div>
             <div class="info-item">
                 <div class="lbl">Tipo</div>
@@ -588,24 +591,24 @@ function renderDetail(m) {
             </div>
             <div class="info-item">
                 <div class="lbl">UUID</div>
-                <div class="val" style="font-size:11px">${esc(m.system_uuid || '-')}</div>
+                <div class="val" style="font-size:0.72rem">${esc(m.system_uuid || '-')}</div>
             </div>
         </div>
     </div>
 
     <div class="detail-section">
-        <h3>⚡ Procesador</h3>
+        <h6><i class="bi bi-speedometer2"></i> Procesador</h6>
         <div class="info-grid">
             <div class="info-item full">
                 <div class="lbl">CPU</div>
                 <div class="val">${esc(m.cpu_name || '-')}</div>
             </div>
             <div class="info-item">
-                <div class="lbl">Núcleos físicos / lógicos</div>
+                <div class="lbl">N&uacute;cleos f&iacute;sicos / l&oacute;gicos</div>
                 <div class="val">${m.cpu_cores_physical || 0} / ${m.cpu_cores_logical || 0}</div>
             </div>
             <div class="info-item">
-                <div class="lbl">Velocidad máx</div>
+                <div class="lbl">Velocidad m&aacute;x</div>
                 <div class="val">${m.cpu_max_speed_mhz || 0} MHz</div>
             </div>
         </div>
@@ -613,7 +616,7 @@ function renderDetail(m) {
     </div>
 
     <div class="detail-section">
-        <h3>💾 Memoria RAM</h3>
+        <h6><i class="bi bi-memory"></i> Memoria RAM</h6>
         <div class="info-grid">
             <div class="info-item">
                 <div class="lbl">Total</div>
@@ -627,12 +630,11 @@ function renderDetail(m) {
         ${usageBar('RAM', m.ram_usage_percent || 0)}
     `;
 
-    // Módulos RAM
     if (m.ram_modules && m.ram_modules.length) {
-        html += '<div style="margin-top:12px">';
+        html += '<div style="margin-top:10px">';
         m.ram_modules.forEach(mod => {
             html += `<div class="info-item" style="margin-bottom:6px">
-                <div class="val" style="font-size:13px">
+                <div class="val" style="font-size:0.8rem">
                     ${esc(mod.slot || '?')}: ${mod.capacity_gb} GB
                     ${mod.speed_mhz ? mod.speed_mhz + ' MHz' : ''}
                     ${mod.manufacturer ? '(' + esc(mod.manufacturer) + ')' : ''}
@@ -641,12 +643,10 @@ function renderDetail(m) {
         });
         html += '</div>';
     }
-
     html += '</div>';
 
     // Discos
-    html += '<div class="detail-section"><h3>💿 Almacenamiento</h3>';
-
+    html += '<div class="detail-section"><h6><i class="bi bi-device-hdd"></i> Almacenamiento</h6>';
     const physicalDisks = (m.disks || []).filter(d => d.disk_type === 'physical');
     const partitions = (m.disks || []).filter(d => d.disk_type === 'partition');
 
@@ -654,15 +654,14 @@ function renderDetail(m) {
         physicalDisks.forEach(d => {
             html += `<div class="info-item" style="margin-bottom:8px">
                 <div class="lbl">${esc(d.model || 'Disco')}</div>
-                <div class="val">${d.size_gb} GB — ${esc(d.interface || '')} ${esc(d.media_type || '')}</div>
-                <div style="font-size:11px;color:var(--text-dim);margin-top:2px">S/N: ${esc(d.serial || '-')}</div>
+                <div class="val">${d.size_gb} GB &mdash; ${esc(d.interface || '')} ${esc(d.media_type || '')}</div>
+                <div style="font-size:0.68rem;color:var(--gray-500);margin-top:2px">S/N: ${esc(d.serial || '-')}</div>
             </div>`;
         });
     }
-
     partitions.forEach(p => {
         html += usageBar(
-            `${p.mountpoint} (${p.fstype || '?'}) — ${p.total_gb} GB`,
+            `${p.mountpoint} (${p.fstype || '?'}) &mdash; ${p.total_gb} GB`,
             p.usage_percent || 0
         );
     });
@@ -671,12 +670,12 @@ function renderDetail(m) {
     // Red
     const activeAdapters = (m.network_adapters || []).filter(a => a.ipv4);
     if (activeAdapters.length) {
-        html += '<div class="detail-section"><h3>🌐 Red</h3><div class="info-grid">';
+        html += '<div class="detail-section"><h6><i class="bi bi-ethernet"></i> Red</h6><div class="info-grid">';
         activeAdapters.forEach(a => {
             html += `<div class="info-item">
                 <div class="lbl">${esc(a.name)}</div>
                 <div class="val">${esc(a.ipv4 || '-')}</div>
-                <div style="font-size:11px;color:var(--text-dim)">${esc(a.mac || '')}</div>
+                <div style="font-size:0.68rem;color:var(--gray-500)">${esc(a.mac || '')}</div>
             </div>`;
         });
         html += '</div></div>';
@@ -686,43 +685,43 @@ function renderDetail(m) {
     const software = m.software || [];
     if (software.length) {
         html += `<div class="detail-section">
-            <h3>📦 Software instalado (${software.length})</h3>
+            <h6><i class="bi bi-box-seam"></i> Software instalado (${software.length})</h6>
             <input type="text" class="sw-search" placeholder="Filtrar software..."
                    oninput="filterSoftware(this.value)">
-            <div style="max-height:400px;overflow-y:auto">
-            <table class="sw-table" id="swTable">
+            <div style="max-height:400px;overflow-y:auto;border:1px solid var(--gray-200);border-radius:8px">
+            <table class="table sw-table mb-0" id="swTable">
                 <thead><tr>
-                    <th>Nombre</th><th>Versión</th><th>Editor</th>
+                    <th>Nombre</th><th>Versi&oacute;n</th><th>Editor</th>
                 </tr></thead>
                 <tbody>`;
         software.forEach(s => {
             html += `<tr>
                 <td>${esc(s.name)}</td>
                 <td>${esc(s.version || '-')}</td>
-                <td style="color:var(--text-dim)">${esc(s.publisher || '-')}</td>
+                <td style="color:var(--gray-500)">${esc(s.publisher || '-')}</td>
             </tr>`;
         });
         html += '</tbody></table></div></div>';
     }
 
-    // Metadata
+    // Agente
     html += `<div class="detail-section">
-        <h3>ℹ️ Agente</h3>
+        <h6><i class="bi bi-info-circle"></i> Agente</h6>
         <div class="info-grid">
             <div class="info-item">
-                <div class="lbl">Versión agente</div>
+                <div class="lbl">Versi&oacute;n agente</div>
                 <div class="val">${esc(m.agent_version || '-')}</div>
             </div>
             <div class="info-item">
                 <div class="lbl">Admin</div>
-                <div class="val">${m.is_admin ? '✓ Sí' : '✗ No'}</div>
+                <div class="val">${m.is_admin ? '<i class="bi bi-check-circle-fill text-success"></i> S&iacute;' : '<i class="bi bi-x-circle text-danger"></i> No'}</div>
             </div>
             <div class="info-item">
                 <div class="lbl">Primera vez</div>
                 <div class="val">${fmtDate(m.first_seen)}</div>
             </div>
             <div class="info-item">
-                <div class="lbl">Último reporte</div>
+                <div class="lbl">&Uacute;ltimo reporte</div>
                 <div class="val">${fmtDate(m.last_seen)}</div>
             </div>
         </div>
@@ -746,10 +745,10 @@ function filterSoftware(q) {
 
 function usageBar(label, pct) {
     pct = Math.min(100, Math.max(0, pct));
-    let color = 'var(--green)';
-    if (pct > 85) color = 'var(--red)';
-    else if (pct > 70) color = 'var(--orange)';
-    else if (pct > 50) color = 'var(--yellow)';
+    let color = 'var(--success)';
+    if (pct > 85) color = 'var(--danger)';
+    else if (pct > 70) color = '#e65100';
+    else if (pct > 50) color = 'var(--warning)';
 
     return `<div class="usage-bar-wrap">
         <div class="usage-bar-label">
@@ -764,40 +763,35 @@ function usageBar(label, pct) {
 async function sendWOL(machineId) {
     const btn = document.getElementById('wolBtn');
     if (!btn) return;
-
     btn.disabled = true;
     btn.className = 'wol-btn sending';
-    btn.innerHTML = '⏳ Enviando comando WOL...';
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Enviando comando WOL...';
 
     try {
         const res = await fetch(`/api/wol/${machineId}`, { method: 'POST' });
         const data = await res.json();
-
         if (res.ok) {
             btn.className = 'wol-btn sent';
-            btn.innerHTML = '✓ Comando WOL enviado';
-            // Mostrar MAC
+            btn.innerHTML = '<i class="bi bi-check-circle-fill"></i> Comando WOL enviado';
             const notice = btn.nextElementSibling;
             if (notice && data.target_mac) {
                 notice.textContent = `Magic packet encolado para ${data.target_mac}. Un agente en la red lo ejecutará.`;
             }
         } else {
-            btn.className = 'wol-btn';
+            btn.className = 'wol-btn btn-wol-ready';
             btn.disabled = false;
-            btn.innerHTML = `✗ ${data.error || 'Error'}`;
+            btn.innerHTML = `<i class="bi bi-x-circle"></i> ${data.error || 'Error'}`;
         }
     } catch (e) {
-        btn.className = 'wol-btn';
+        btn.className = 'wol-btn btn-wol-ready';
         btn.disabled = false;
-        btn.innerHTML = '✗ Error de conexión';
+        btn.innerHTML = '<i class="bi bi-x-circle"></i> Error de conexión';
     }
-
-    // Re-habilitar después de 30s
     setTimeout(() => {
         if (btn) {
             btn.disabled = false;
-            btn.className = 'wol-btn';
-            btn.innerHTML = '⚡ Encender equipo (Wake-on-LAN)';
+            btn.className = 'wol-btn btn-wol-ready';
+            btn.innerHTML = '<i class="bi bi-lightning-charge-fill"></i> Encender equipo (Wake-on-LAN)';
         }
     }, 30000);
 }
@@ -809,20 +803,14 @@ function esc(s) {
     d.textContent = String(s);
     return d.innerHTML;
 }
-
 function shortOS(os) {
     if (!os) return '-';
     return os.replace('Microsoft ', '').replace('Windows ', 'Win ');
 }
-
 function shortCPU(cpu) {
     if (!cpu) return '-';
-    return cpu.replace('Intel(R) Core(TM) ', '')
-              .replace('AMD ', '')
-              .replace(' Processor', '')
-              .substring(0, 30);
+    return cpu.replace('Intel(R) Core(TM) ', '').replace('AMD ', '').replace(' Processor', '').substring(0, 30);
 }
-
 function timeAgo(iso) {
     if (!iso) return '-';
     const diff = (Date.now() - new Date(iso).getTime()) / 1000;
@@ -831,7 +819,6 @@ function timeAgo(iso) {
     if (diff < 86400) return Math.floor(diff / 3600) + ' h';
     return Math.floor(diff / 86400) + ' d';
 }
-
 function fmtDate(iso) {
     if (!iso) return '-';
     return new Date(iso).toLocaleString('es-CO');
@@ -852,8 +839,6 @@ document.getElementById('searchBox').addEventListener('input', function() {
 
 // Auto-refresh cada 30s
 setInterval(loadData, 30000);
-
-// Init
 loadData();
 </script>
 

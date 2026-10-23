@@ -53,7 +53,7 @@ $ConfigPath = Join-Path $AgentDir "agent\config.json"
 
 if ($ServerUrl -or $ApiKey) {
     $config = @{
-        server_url       = if ($ServerUrl) { $ServerUrl } else { "http://localhost:5050" }
+        server_url       = if ($ServerUrl) { $ServerUrl } else { "http://172.16.100.4:8086" }
         api_key          = if ($ApiKey) { $ApiKey } else { "change-me-on-first-run" }
         interval_seconds = $IntervalHours * 3600
         send_software    = $true

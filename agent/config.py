@@ -8,7 +8,7 @@ import json
 
 # Valores por defecto
 DEFAULT_CONFIG = {
-    "server_url": "http://localhost:5050",
+    "server_url": "http://172.16.100.4:8086",
     "api_key": "change-me-on-first-run",
     "interval_seconds": 300,      # cada 5 minutos
     "send_software": True,

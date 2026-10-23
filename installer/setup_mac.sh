@@ -82,7 +82,7 @@ INTERVAL_SECONDS=$((INTERVAL_HOURS * 3600))
 if [ -n "$SERVER_URL" ] || [ -n "$API_KEY" ]; then
     cat > "$CONFIG_PATH" << CONF
 {
-    "server_url": "${SERVER_URL:-http://localhost:5050}",
+    "server_url": "${SERVER_URL:-http://172.16.100.4:8086}",
     "api_key": "${API_KEY:-change-me-on-first-run}",
     "interval_seconds": $INTERVAL_SECONDS,
     "send_software": true,
@@ -91,7 +91,7 @@ if [ -n "$SERVER_URL" ] || [ -n "$API_KEY" ]; then
     "verify_ssl": true
 }
 CONF
-    echo -e "${GREEN}[OK] config.json actualizado con servidor: ${SERVER_URL:-http://localhost:5050}${NC}"
+    echo -e "${GREEN}[OK] config.json actualizado con servidor: ${SERVER_URL:-http://172.16.100.4:8086}${NC}"
 elif [ ! -f "$CONFIG_PATH" ]; then
     "$PYTHON_PATH" "$AGENT_SCRIPT" --init-config
     echo -e "${YELLOW}[INFO] config.json creado con valores por defecto. Editalo con la URL de tu servidor.${NC}"

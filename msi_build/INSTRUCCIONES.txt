@@ -15,7 +15,7 @@ PASO 1: COMPILAR EL .EXE + MSI
 Abrir PowerShell como Administrador y ejecutar:
 
   cd msi_build
-  .\build_msi.ps1 -ServerUrl "https://TU-APP.up.railway.app" -ApiKey "TU-API-KEY"
+  .\build_msi.ps1 -ServerUrl "http://172.16.100.4:8086" -ApiKey "TU-API-KEY"
 
 Esto genera en la carpeta msi_build\dist\:
   - PCInventoryAgent.exe    (agente compilado, no requiere Python)
@@ -50,7 +50,7 @@ PASO 2: DESPLEGAR EN LA RED
   msiexec /i PCInventoryAgent.msi /qn SERVER_URL="https://..." API_KEY="..."
 
 Parametros MSI:
-  SERVER_URL     - URL del servidor Railway
+  SERVER_URL     - URL del servidor (ej: http://172.16.100.4:8086)
   API_KEY        - Clave de autenticación
   INTERVAL_HOURS - Horas entre reportes (default: 5)
 
@@ -105,8 +105,8 @@ En cada PC se puede verificar:
 
 NOTAS DE RED
 ------------
-- El agente envia datos por HTTPS al servidor Railway
-- Puerto: 443 (HTTPS estándar)
-- No requiere apertura de puertos en el firewall local
+- El agente envia datos al servidor local (172.16.100.4:8086)
+- Puerto: 8086
+- Asegurar que el puerto 8086 esté abierto en el firewall del servidor
 - Si hay proxy corporativo, configurar en config.json:
   "proxy": "http://proxy.empresa.local:8080"

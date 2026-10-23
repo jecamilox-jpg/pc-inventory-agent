@@ -37,10 +37,10 @@ pip install -r requirements.txt
 python app.py
 ```
 
-El servidor arranca en `http://localhost:5050`.
+El servidor arranca en `http://172.16.100.4:8086`.
 
 Variables de entorno opcionales:
-- `PORT` — Puerto (default: 5050)
+- `PORT` — Puerto (default: 8086)
 - `INVENTORY_API_KEY` — API key para autenticar agentes
 - `SECRET_KEY` — Clave secreta de Flask
 - `FLASK_DEBUG` — "1" para modo debug

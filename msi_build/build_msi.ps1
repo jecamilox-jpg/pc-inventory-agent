@@ -9,7 +9,7 @@
     3. El MSI resultante se puede desplegar por GPO, SCCM, o manualmente
 
 .PARAMETER ServerUrl
-    URL del servidor de inventario (Railway)
+    URL del servidor de inventario
 
 .PARAMETER ApiKey
     API Key para autenticación
@@ -18,7 +18,7 @@
     Intervalo de reporte en horas (default: 5)
 
 .EXAMPLE
-    .\build_msi.ps1 -ServerUrl "https://mi-server.up.railway.app" -ApiKey "mi-clave-123"
+    .\build_msi.ps1 -ServerUrl "http://172.16.100.4:8086" -ApiKey "mi-clave-123"
 #>
 
 param(
