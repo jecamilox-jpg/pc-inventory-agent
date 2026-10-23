@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PC Inventory - Iniciar sesi&oacute;n</title>
+    <title>ITDeskManager — Iniciar sesión</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <style>
@@ -12,91 +12,149 @@
             src: local('Century Gothic'), local('CenturyGothic');
         }
         :root {
-            --cg-font: 'Century Gothic', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            --primary: #1a73e8;
-            --gray-50: #f8f9fa;
-            --gray-200: #e8eaed;
-            --gray-500: #9aa0a6;
-            --gray-700: #5f6368;
-            --gray-900: #202124;
+            --cg: 'Century Gothic', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            --brand: #2563eb;
+            --brand-dark: #1d4ed8;
+            --brand-light: #eff6ff;
+            --slate-50: #f8fafc;
+            --slate-100: #f1f5f9;
+            --slate-200: #e2e8f0;
+            --slate-300: #cbd5e1;
+            --slate-400: #94a3b8;
+            --slate-500: #64748b;
+            --slate-600: #475569;
+            --slate-700: #334155;
+            --slate-800: #1e293b;
+            --slate-900: #0f172a;
         }
-        * { font-family: var(--cg-font) !important; }
+        * { font-family: var(--cg) !important; box-sizing: border-box; }
         body {
-            background: var(--gray-50);
+            background: var(--slate-900);
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
+            margin: 0;
+            position: relative;
+            overflow: hidden;
         }
+        body::before {
+            content: '';
+            position: absolute;
+            top: -50%; left: -50%;
+            width: 200%; height: 200%;
+            background: radial-gradient(circle at 30% 40%, rgba(37,99,235,.12) 0%, transparent 50%),
+                        radial-gradient(circle at 70% 60%, rgba(37,99,235,.08) 0%, transparent 50%);
+            animation: drift 20s ease-in-out infinite alternate;
+        }
+        @keyframes drift {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(-30px, -20px); }
+        }
+
         .login-wrapper {
             width: 100%;
-            max-width: 420px;
+            max-width: 440px;
             padding: 0 20px;
+            position: relative;
+            z-index: 1;
         }
         .login-card {
             background: #fff;
-            border: 1px solid var(--gray-200);
+            border: 1px solid var(--slate-200);
             border-radius: 16px;
-            padding: 40px 36px 32px;
-            box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+            padding: 44px 40px 36px;
+            box-shadow: 0 20px 60px rgba(0,0,0,.2), 0 1px 3px rgba(0,0,0,.08);
         }
         .login-logo {
             text-align: center;
-            margin-bottom: 28px;
+            margin-bottom: 32px;
         }
-        .login-logo i {
-            font-size: 2.5rem;
-            color: var(--primary);
+        .login-logo .icon-wrap {
+            width: 56px; height: 56px;
+            background: var(--brand);
+            border-radius: 14px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 14px;
+            box-shadow: 0 4px 14px rgba(37,99,235,.3);
+        }
+        .login-logo .icon-wrap i {
+            font-size: 1.6rem;
+            color: #fff;
         }
         .login-logo h4 {
             font-weight: 700;
-            color: var(--gray-900);
-            margin-top: 8px;
-            margin-bottom: 4px;
+            color: var(--slate-900);
+            margin: 0 0 4px;
+            font-size: 1.25rem;
         }
         .login-logo p {
-            font-size: 0.82rem;
-            color: var(--gray-500);
+            font-size: .82rem;
+            color: var(--slate-400);
             margin: 0;
         }
         .form-label {
-            font-size: 0.82rem;
+            font-size: .82rem;
             font-weight: 600;
-            color: var(--gray-700);
+            color: var(--slate-600);
         }
         .form-control {
             border-radius: 8px;
-            border: 1px solid var(--gray-200);
+            border: 1px solid var(--slate-200);
             padding: 10px 14px;
-            font-size: 0.9rem;
-            background: var(--gray-50);
+            font-size: .88rem;
+            background: var(--slate-50);
+            transition: all .2s;
         }
         .form-control:focus {
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px rgba(26,115,232,0.12);
+            border-color: var(--brand);
+            box-shadow: 0 0 0 3px rgba(37,99,235,.12);
             background: #fff;
         }
         .btn-login {
-            background: var(--primary);
+            background: var(--brand);
             color: #fff;
             border: none;
-            border-radius: 8px;
-            padding: 10px;
-            font-size: 0.9rem;
+            border-radius: 10px;
+            padding: 11px;
+            font-size: .9rem;
             font-weight: 700;
             width: 100%;
-            transition: background 0.2s;
+            transition: all .2s;
+            box-shadow: 0 2px 8px rgba(37,99,235,.25);
         }
-        .btn-login:hover { background: #1565c0; color: #fff; }
+        .btn-login:hover {
+            background: var(--brand-dark);
+            color: #fff;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 14px rgba(37,99,235,.35);
+        }
         .login-footer {
             text-align: center;
             margin-top: 24px;
-            font-size: 0.72rem;
-            color: var(--gray-500);
+            font-size: .72rem;
+            color: var(--slate-400);
             display: flex;
             align-items: center;
             justify-content: center;
             gap: 6px;
+        }
+        .input-group-text {
+            background: var(--slate-50);
+            border: 1px solid var(--slate-200);
+            border-right: none;
+            border-radius: 8px 0 0 8px;
+            color: var(--slate-400);
+        }
+        .input-group .form-control {
+            border-left: none;
+            border-radius: 0 8px 8px 0;
+        }
+        .input-group:focus-within .input-group-text {
+            border-color: var(--brand);
+            color: var(--brand);
         }
     </style>
 </head>
@@ -105,39 +163,45 @@
 <div class="login-wrapper">
     <div class="login-card">
         <div class="login-logo">
-            <i class="bi bi-shield-lock-fill"></i>
-            <h4>PC Inventory</h4>
-            <p>Inicia sesi&oacute;n para continuar</p>
+            <div class="icon-wrap"><i class="bi bi-pc-display-horizontal"></i></div>
+            <h4>ITDeskManager</h4>
+            <p>Consola de Inventario de Equipos</p>
         </div>
 
         {% if error %}
-        <div class="alert alert-danger py-2 px-3" style="font-size:0.82rem;border-radius:8px">
-            <i class="bi bi-exclamation-triangle-fill me-1"></i> {{ error }}
+        <div class="alert alert-danger py-2 px-3 d-flex align-items-center gap-2" style="font-size:.82rem;border-radius:8px;border:none;background:#fef2f2;color:#dc2626">
+            <i class="bi bi-exclamation-triangle-fill"></i> {{ error }}
         </div>
         {% endif %}
 
         <form method="POST" action="/login">
             <div class="mb-3">
                 <label class="form-label">Usuario</label>
-                <input type="text" class="form-control" name="username" required
-                       autocomplete="username" autofocus
-                       placeholder="Ingresa tu usuario">
+                <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-person"></i></span>
+                    <input type="text" class="form-control" name="username" required
+                           autocomplete="username" autofocus
+                           placeholder="Ingresa tu usuario">
+                </div>
             </div>
             <div class="mb-4">
-                <label class="form-label">Contrase&ntilde;a</label>
-                <input type="password" class="form-control" name="password" required
-                       autocomplete="current-password"
-                       placeholder="Ingresa tu contrase&ntilde;a">
+                <label class="form-label">Contraseña</label>
+                <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-lock"></i></span>
+                    <input type="password" class="form-control" name="password" required
+                           autocomplete="current-password"
+                           placeholder="Ingresa tu contraseña">
+                </div>
             </div>
             <button type="submit" class="btn btn-login">
-                <i class="bi bi-box-arrow-in-right me-1"></i> Iniciar sesi&oacute;n
+                <i class="bi bi-box-arrow-in-right me-1"></i> Iniciar sesión
             </button>
         </form>
     </div>
 
     <div class="login-footer">
         <i class="bi bi-shield-check"></i>
-        Sesi&oacute;n protegida &bull; ITDeskManager
+        Sesión protegida &bull; ITDeskManager v2.0
     </div>
 </div>
 

@@ -75,9 +75,9 @@ def add_security_headers(response):
     # CSP: solo permite recursos del mismo origen + Google Fonts
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline'; "
-        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-        "font-src https://fonts.gstatic.com; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; "
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; "
+        "font-src https://fonts.gstatic.com https://cdn.jsdelivr.net; "
         "img-src 'self' data:; "
         "connect-src 'self'; "
         "frame-ancestors 'none'"
@@ -237,6 +237,22 @@ def init_db():
             attempted_at TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS peripherals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            machine_id TEXT NOT NULL,
+            peripheral_type TEXT NOT NULL,
+            name TEXT,
+            manufacturer TEXT,
+            serial TEXT,
+            connection_type TEXT,
+            detail TEXT,
+            FOREIGN KEY (machine_id) REFERENCES machines(id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_peripherals_machine
+            ON peripherals(machine_id);
+        CREATE INDEX IF NOT EXISTS idx_peripherals_type
+            ON peripherals(peripheral_type);
         CREATE INDEX IF NOT EXISTS idx_machines_hostname
             ON machines(hostname);
         CREATE INDEX IF NOT EXISTS idx_software_machine
@@ -609,6 +625,63 @@ def api_report():
             sw.get("publisher"), sw.get("install_date")
         ))
 
+    # Actualizar periféricos
+    db.execute("DELETE FROM peripherals WHERE machine_id = ?", (machine_id,))
+    periph = data.get("peripherals", {})
+
+    for mon in periph.get("monitors", []):
+        db.execute("""
+            INSERT INTO peripherals (machine_id, peripheral_type, name,
+                manufacturer, serial, connection_type, detail)
+            VALUES (?, 'monitor', ?, ?, ?, 'Video', ?)
+        """, (machine_id, mon.get("name"), mon.get("manufacturer"),
+              mon.get("serial"), mon.get("resolution", "")))
+
+    for prn in periph.get("printers", []):
+        conn = "Red" if prn.get("is_network") else "Local"
+        detail_parts = []
+        if prn.get("driver"):
+            detail_parts.append(f"Driver: {prn['driver']}")
+        if prn.get("port"):
+            detail_parts.append(f"Puerto: {prn['port']}")
+        if prn.get("is_default"):
+            detail_parts.append("Predeterminada")
+        db.execute("""
+            INSERT INTO peripherals (machine_id, peripheral_type, name,
+                manufacturer, serial, connection_type, detail)
+            VALUES (?, 'printer', ?, ?, ?, ?, ?)
+        """, (machine_id, prn.get("name"), "", "", conn,
+              "; ".join(detail_parts)))
+
+    for kbd in periph.get("keyboards", []):
+        db.execute("""
+            INSERT INTO peripherals (machine_id, peripheral_type, name,
+                manufacturer, serial, connection_type, detail)
+            VALUES (?, 'keyboard', ?, ?, ?, ?, ?)
+        """, (machine_id, kbd.get("name"), "", "",
+              kbd.get("type", ""), kbd.get("layout", "")))
+
+    for mouse in periph.get("mice", []):
+        detail_parts = []
+        if mouse.get("pointing_type"):
+            detail_parts.append(mouse["pointing_type"])
+        if mouse.get("buttons"):
+            detail_parts.append(f"{mouse['buttons']} botones")
+        db.execute("""
+            INSERT INTO peripherals (machine_id, peripheral_type, name,
+                manufacturer, serial, connection_type, detail)
+            VALUES (?, 'mouse', ?, ?, ?, ?, ?)
+        """, (machine_id, mouse.get("name"), mouse.get("manufacturer", ""),
+              "", mouse.get("type", ""), "; ".join(detail_parts)))
+
+    for usb in periph.get("usb_devices", []):
+        db.execute("""
+            INSERT INTO peripherals (machine_id, peripheral_type, name,
+                manufacturer, serial, connection_type, detail)
+            VALUES (?, 'usb', ?, ?, ?, 'USB', ?)
+        """, (machine_id, usb.get("name"), usb.get("manufacturer", ""),
+              "", usb.get("class", "")))
+
     # Log
     db.execute("""
         INSERT INTO report_log (machine_id, reported_at, agent_version)
@@ -675,6 +748,12 @@ def api_machine_detail(machine_id):
             (machine_id,)
         ).fetchall()
     ]
+    result["peripherals"] = [
+        dict(r) for r in db.execute(
+            "SELECT * FROM peripherals WHERE machine_id = ? ORDER BY peripheral_type",
+            (machine_id,)
+        ).fetchall()
+    ]
 
     # Parsear GPU
     try:
@@ -699,6 +778,7 @@ def api_delete_machine(machine_id):
     db.execute(
         "DELETE FROM network_adapters WHERE machine_id = ?", (machine_id,)
     )
+    db.execute("DELETE FROM peripherals WHERE machine_id = ?", (machine_id,))
     db.execute("DELETE FROM report_log WHERE machine_id = ?", (machine_id,))
     hostname = db.execute("SELECT hostname FROM machines WHERE id = ?", (machine_id,)).fetchone()
     db.execute("DELETE FROM machines WHERE id = ?", (machine_id,))
@@ -946,6 +1026,429 @@ def api_delete_user(user_id):
     db.commit()
     audit_log("delete_user", f"Usuario desactivado: ID {user_id}")
     return jsonify({"status": "ok"})
+
+
+# ========== Software Catalog API ==========
+@app.route("/api/software/catalog", methods=["GET"])
+@require_login
+def api_software_catalog():
+    """Catálogo de software agregado por todas las máquinas."""
+    db = get_db()
+    search = request.args.get("search", "").strip()
+    page = max(int(request.args.get("page", 1)), 1)
+    per_page = min(int(request.args.get("per_page", 50)), 200)
+    offset = (page - 1) * per_page
+
+    base_where = ""
+    params = []
+    if search:
+        base_where = "WHERE s.name LIKE ?"
+        params.append(f"%{search}%")
+
+    # Total count
+    total = db.execute(
+        f"SELECT COUNT(DISTINCT s.name) FROM software s {base_where}", params
+    ).fetchone()[0]
+
+    # Aggregated list
+    rows = db.execute(f"""
+        SELECT s.name,
+               s.publisher,
+               COUNT(DISTINCT s.machine_id) as machine_count,
+               GROUP_CONCAT(DISTINCT s.version) as versions
+        FROM software s
+        {base_where}
+        GROUP BY s.name
+        ORDER BY machine_count DESC, s.name
+        LIMIT ? OFFSET ?
+    """, params + [per_page, offset]).fetchall()
+
+    return jsonify({
+        "items": [dict(r) for r in rows],
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "total_pages": max(1, (total + per_page - 1) // per_page),
+    })
+
+
+@app.route("/api/software/top", methods=["GET"])
+@require_login
+def api_software_top():
+    """Top software más instalado."""
+    db = get_db()
+    limit = min(int(request.args.get("limit", 15)), 50)
+    rows = db.execute("""
+        SELECT name, publisher, COUNT(DISTINCT machine_id) as machine_count
+        FROM software
+        GROUP BY name
+        ORDER BY machine_count DESC
+        LIMIT ?
+    """, (limit,)).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+# ========== Network Overview API ==========
+@app.route("/api/network/overview", methods=["GET"])
+@require_login
+def api_network_overview():
+    """Resumen de red: adaptadores, IPs, subredes."""
+    db = get_db()
+
+    # All adapters with machine info
+    adapters = db.execute("""
+        SELECT n.*, m.hostname, m.is_online
+        FROM network_adapters n
+        JOIN machines m ON n.machine_id = m.id
+        WHERE n.ipv4 IS NOT NULL AND n.ipv4 != ''
+        ORDER BY m.hostname
+    """).fetchall()
+
+    # Subnet summary
+    subnets = {}
+    for a in adapters:
+        ip = a["ipv4"]
+        if ip:
+            parts = ip.split(".")
+            if len(parts) == 4:
+                subnet = f"{parts[0]}.{parts[1]}.{parts[2]}.0/24"
+                if subnet not in subnets:
+                    subnets[subnet] = {"subnet": subnet, "count": 0, "machines": []}
+                subnets[subnet]["count"] += 1
+                subnets[subnet]["machines"].append(a["hostname"])
+
+    return jsonify({
+        "adapters": [dict(a) for a in adapters],
+        "subnets": list(subnets.values()),
+        "total_adapters": len(adapters),
+    })
+
+
+# ========== Peripherals API ==========
+@app.route("/api/peripherals", methods=["GET"])
+@require_login
+def api_peripherals():
+    """Lista periféricos, con filtro opcional por máquina o tipo."""
+    db = get_db()
+    machine_id = request.args.get("machine_id", "")
+    ptype = request.args.get("type", "")
+    search = request.args.get("search", "").strip()
+    page = max(int(request.args.get("page", 1)), 1)
+    per_page = min(int(request.args.get("per_page", 50)), 200)
+    offset = (page - 1) * per_page
+
+    where_parts = []
+    params = []
+
+    if machine_id:
+        where_parts.append("p.machine_id = ?")
+        params.append(machine_id)
+    if ptype:
+        where_parts.append("p.peripheral_type = ?")
+        params.append(ptype)
+    if search:
+        where_parts.append("(p.name LIKE ? OR p.manufacturer LIKE ?)")
+        params.extend([f"%{search}%", f"%{search}%"])
+
+    where_clause = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
+
+    total = db.execute(
+        f"SELECT COUNT(*) FROM peripherals p {where_clause}", params
+    ).fetchone()[0]
+
+    rows = db.execute(f"""
+        SELECT p.*, m.hostname
+        FROM peripherals p
+        JOIN machines m ON p.machine_id = m.id
+        {where_clause}
+        ORDER BY p.peripheral_type, m.hostname
+        LIMIT ? OFFSET ?
+    """, params + [per_page, offset]).fetchall()
+
+    return jsonify({
+        "items": [dict(r) for r in rows],
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "total_pages": max(1, (total + per_page - 1) // per_page),
+    })
+
+
+@app.route("/api/peripherals/summary", methods=["GET"])
+@require_login
+def api_peripherals_summary():
+    """Resumen de periféricos por tipo y estadísticas."""
+    db = get_db()
+
+    # Conteo por tipo
+    by_type = db.execute("""
+        SELECT peripheral_type as type, COUNT(*) as count
+        FROM peripherals
+        GROUP BY peripheral_type
+        ORDER BY count DESC
+    """).fetchall()
+
+    # Top fabricantes de monitores
+    top_monitor_mfr = db.execute("""
+        SELECT COALESCE(NULLIF(manufacturer, ''), 'Desconocido') as name,
+               COUNT(*) as count
+        FROM peripherals
+        WHERE peripheral_type = 'monitor' AND manufacturer != ''
+        GROUP BY manufacturer
+        ORDER BY count DESC
+        LIMIT 10
+    """).fetchall()
+
+    # Top impresoras
+    top_printers = db.execute("""
+        SELECT name, COUNT(*) as count
+        FROM peripherals
+        WHERE peripheral_type = 'printer'
+        GROUP BY name
+        ORDER BY count DESC
+        LIMIT 10
+    """).fetchall()
+
+    # Tipos de conexión (teclados + mouse)
+    conn_types = db.execute("""
+        SELECT connection_type as type, COUNT(*) as count
+        FROM peripherals
+        WHERE peripheral_type IN ('keyboard', 'mouse')
+          AND connection_type != ''
+        GROUP BY connection_type
+        ORDER BY count DESC
+    """).fetchall()
+
+    # Total
+    total = db.execute("SELECT COUNT(*) FROM peripherals").fetchone()[0]
+    total_machines_with = db.execute(
+        "SELECT COUNT(DISTINCT machine_id) FROM peripherals"
+    ).fetchone()[0]
+
+    return jsonify({
+        "total": total,
+        "total_machines": total_machines_with,
+        "by_type": [dict(r) for r in by_type],
+        "top_monitor_manufacturers": [dict(r) for r in top_monitor_mfr],
+        "top_printers": [dict(r) for r in top_printers],
+        "connection_types": [dict(r) for r in conn_types],
+    })
+
+
+# ========== Alerts API ==========
+@app.route("/api/alerts", methods=["GET"])
+@require_login
+def api_alerts():
+    """Alertas del sistema: disco bajo, equipos offline, reportes viejos."""
+    db = get_db()
+    alerts = []
+
+    # Equipos offline (no reportan hace > 24h)
+    offline = db.execute("""
+        SELECT id, hostname, last_seen
+        FROM machines
+        WHERE is_online = 0
+           OR last_seen < datetime('now', '-24 hours')
+        ORDER BY last_seen ASC
+    """).fetchall()
+    for m in offline:
+        alerts.append({
+            "type": "offline",
+            "severity": "warning",
+            "icon": "bi-wifi-off",
+            "title": f"{m['hostname']} sin conexión",
+            "detail": f"Último reporte: {m['last_seen'] or 'Nunca'}",
+            "machine_id": m["id"],
+        })
+
+    # Discos con uso > 90%
+    low_disk = db.execute("""
+        SELECT d.machine_id, d.mountpoint, d.usage_percent,
+               d.total_gb, d.free_gb, m.hostname
+        FROM disks d
+        JOIN machines m ON d.machine_id = m.id
+        WHERE d.disk_type = 'partition'
+          AND d.usage_percent > 90
+        ORDER BY d.usage_percent DESC
+    """).fetchall()
+    for d in low_disk:
+        alerts.append({
+            "type": "disk",
+            "severity": "danger" if d["usage_percent"] > 95 else "warning",
+            "icon": "bi-hdd",
+            "title": f"{d['hostname']} — disco {d['mountpoint']} al {d['usage_percent']:.0f}%",
+            "detail": f"{d['free_gb']:.1f} GB libres de {d['total_gb']:.1f} GB",
+            "machine_id": d["machine_id"],
+        })
+
+    # RAM alta (> 90%)
+    high_ram = db.execute("""
+        SELECT id, hostname, ram_usage_percent, ram_total_gb
+        FROM machines
+        WHERE ram_usage_percent > 90
+        ORDER BY ram_usage_percent DESC
+    """).fetchall()
+    for m in high_ram:
+        alerts.append({
+            "type": "ram",
+            "severity": "warning",
+            "icon": "bi-memory",
+            "title": f"{m['hostname']} — RAM al {m['ram_usage_percent']:.0f}%",
+            "detail": f"Total: {m['ram_total_gb']:.1f} GB",
+            "machine_id": m["id"],
+        })
+
+    # CPU alta (> 90%)
+    high_cpu = db.execute("""
+        SELECT id, hostname, cpu_usage_percent
+        FROM machines
+        WHERE cpu_usage_percent > 90
+        ORDER BY cpu_usage_percent DESC
+    """).fetchall()
+    for m in high_cpu:
+        alerts.append({
+            "type": "cpu",
+            "severity": "warning",
+            "icon": "bi-cpu",
+            "title": f"{m['hostname']} — CPU al {m['cpu_usage_percent']:.0f}%",
+            "detail": "Uso elevado del procesador",
+            "machine_id": m["id"],
+        })
+
+    # Sort: danger first, then warning
+    severity_order = {"danger": 0, "warning": 1, "info": 2}
+    alerts.sort(key=lambda a: severity_order.get(a["severity"], 9))
+
+    return jsonify({
+        "alerts": alerts,
+        "total": len(alerts),
+        "critical": sum(1 for a in alerts if a["severity"] == "danger"),
+        "warnings": sum(1 for a in alerts if a["severity"] == "warning"),
+    })
+
+
+# ========== Chart Data API ==========
+@app.route("/api/stats/charts", methods=["GET"])
+@require_login
+def api_stats_charts():
+    """Datos formateados para gráficos Chart.js."""
+    db = get_db()
+
+    # OS Distribution
+    os_dist = db.execute("""
+        SELECT COALESCE(os_edition, 'Desconocido') as label, COUNT(*) as value
+        FROM machines GROUP BY os_edition ORDER BY value DESC
+    """).fetchall()
+
+    # Online vs Offline
+    online = db.execute("SELECT COUNT(*) FROM machines WHERE is_online = 1").fetchone()[0]
+    offline = db.execute("SELECT COUNT(*) FROM machines WHERE is_online = 0").fetchone()[0]
+
+    # Manufacturer distribution
+    mfr_dist = db.execute("""
+        SELECT COALESCE(manufacturer, 'Desconocido') as label, COUNT(*) as value
+        FROM machines GROUP BY manufacturer ORDER BY value DESC LIMIT 10
+    """).fetchall()
+
+    # Chassis type distribution
+    chassis_dist = db.execute("""
+        SELECT COALESCE(chassis_type, 'Desconocido') as label, COUNT(*) as value
+        FROM machines GROUP BY chassis_type ORDER BY value DESC
+    """).fetchall()
+
+    # RAM distribution (ranges)
+    ram_ranges = db.execute("""
+        SELECT
+            CASE
+                WHEN ram_total_gb <= 4 THEN '0-4 GB'
+                WHEN ram_total_gb <= 8 THEN '4-8 GB'
+                WHEN ram_total_gb <= 16 THEN '8-16 GB'
+                WHEN ram_total_gb <= 32 THEN '16-32 GB'
+                ELSE '32+ GB'
+            END as label,
+            COUNT(*) as value
+        FROM machines
+        GROUP BY label
+        ORDER BY MIN(ram_total_gb)
+    """).fetchall()
+
+    # Disk usage average per machine
+    disk_usage = db.execute("""
+        SELECT m.hostname as label,
+               COALESCE(AVG(d.usage_percent), 0) as value
+        FROM machines m
+        LEFT JOIN disks d ON d.machine_id = m.id AND d.disk_type = 'partition'
+        GROUP BY m.id
+        ORDER BY value DESC
+        LIMIT 15
+    """).fetchall()
+
+    # CPU usage per machine
+    cpu_usage = db.execute("""
+        SELECT hostname as label, COALESCE(cpu_usage_percent, 0) as value
+        FROM machines
+        ORDER BY cpu_usage_percent DESC
+        LIMIT 15
+    """).fetchall()
+
+    # Reports per day (last 30 days)
+    reports_timeline = db.execute("""
+        SELECT DATE(reported_at) as label, COUNT(*) as value
+        FROM report_log
+        WHERE reported_at > datetime('now', '-30 days')
+        GROUP BY DATE(reported_at)
+        ORDER BY label
+    """).fetchall()
+
+    return jsonify({
+        "os_distribution": [dict(r) for r in os_dist],
+        "online_offline": {"online": online, "offline": offline},
+        "manufacturer_distribution": [dict(r) for r in mfr_dist],
+        "chassis_distribution": [dict(r) for r in chassis_dist],
+        "ram_distribution": [dict(r) for r in ram_ranges],
+        "disk_usage": [dict(r) for r in disk_usage],
+        "cpu_usage": [dict(r) for r in cpu_usage],
+        "reports_timeline": [dict(r) for r in reports_timeline],
+    })
+
+
+# ========== Enhanced Machine Detail API ==========
+@app.route("/api/machines/<machine_id>/history", methods=["GET"])
+@require_login
+def api_machine_history(machine_id):
+    """Historial de reportes de una máquina."""
+    db = get_db()
+    rows = db.execute("""
+        SELECT reported_at, agent_version, success
+        FROM report_log
+        WHERE machine_id = ?
+        ORDER BY reported_at DESC
+        LIMIT 50
+    """, (machine_id,)).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+# ========== Users Management API (enhanced) ==========
+@app.route("/api/users/<int:user_id>/toggle", methods=["POST"])
+@require_login
+def api_toggle_user(user_id):
+    """Activar/desactivar usuario (solo superadmin)."""
+    if session.get("role") != "superadmin":
+        return jsonify({"error": "Sin permisos"}), 403
+    if user_id == session.get("user_id"):
+        return jsonify({"error": "No puedes desactivarte a ti mismo"}), 400
+
+    db = get_db()
+    user = db.execute("SELECT is_active, username FROM users WHERE id = ?", (user_id,)).fetchone()
+    if not user:
+        return jsonify({"error": "Usuario no encontrado"}), 404
+
+    new_status = 0 if user["is_active"] else 1
+    db.execute("UPDATE users SET is_active = ? WHERE id = ?", (new_status, user_id))
+    db.commit()
+    action = "activado" if new_status else "desactivado"
+    audit_log("toggle_user", f"Usuario {action}: {user['username']}")
+    return jsonify({"status": "ok", "is_active": new_status})
 
 
 # ========== Dashboard ==========

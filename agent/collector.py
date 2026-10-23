@@ -735,11 +735,398 @@ def is_admin():
         return False
 
 
+# ========== Peripherals ==========
+def get_peripherals():
+    """Recopila periféricos: monitores, impresoras, teclados, mouse, USB."""
+    peripherals = {
+        "monitors": [],
+        "printers": [],
+        "keyboards": [],
+        "mice": [],
+        "usb_devices": [],
+    }
+
+    if IS_WINDOWS:
+        # --- Monitores ---
+        try:
+            # WmiMonitorID da serial/manufacturer reales vía PowerShell
+            ps_monitors = _run_powershell("""
+                try {
+                    $monitors = Get-CimInstance -Namespace root\\wmi -ClassName WmiMonitorID -ErrorAction Stop
+                    $results = @()
+                    foreach ($m in $monitors) {
+                        $name = if ($m.UserFriendlyName) { ($m.UserFriendlyName | Where-Object {$_ -ne 0} | ForEach-Object { [char]$_ }) -join '' } else { '' }
+                        $serial = if ($m.SerialNumberID) { ($m.SerialNumberID | Where-Object {$_ -ne 0} | ForEach-Object { [char]$_ }) -join '' } else { '' }
+                        $mfr = if ($m.ManufacturerName) { ($m.ManufacturerName | Where-Object {$_ -ne 0} | ForEach-Object { [char]$_ }) -join '' } else { '' }
+                        $results += @{
+                            name = $name
+                            serial = $serial
+                            manufacturer = $mfr
+                            instance = $m.InstanceName
+                        }
+                    }
+                    $results | ConvertTo-Json -Compress
+                } catch { '[]' }
+            """)
+            try:
+                mon_list = json.loads(ps_monitors) if ps_monitors else []
+                if isinstance(mon_list, dict):
+                    mon_list = [mon_list]
+            except Exception:
+                mon_list = []
+
+            # Complementar con Win32_DesktopMonitor para resolución
+            ps_desktop_mon = _run_powershell(
+                "Get-CimInstance Win32_DesktopMonitor | Select-Object Name, "
+                "ScreenWidth, ScreenHeight, PNPDeviceID | ConvertTo-Json -Compress"
+            )
+            try:
+                desk_mons = json.loads(ps_desktop_mon) if ps_desktop_mon else []
+                if isinstance(desk_mons, dict):
+                    desk_mons = [desk_mons]
+            except Exception:
+                desk_mons = []
+
+            # Fusionar datos
+            for i, m in enumerate(mon_list):
+                entry = {
+                    "name": m.get("name", "").strip() or "Monitor",
+                    "serial": m.get("serial", "").strip(),
+                    "manufacturer": m.get("manufacturer", "").strip(),
+                    "resolution": "",
+                }
+                if i < len(desk_mons):
+                    dm = desk_mons[i]
+                    w = dm.get("ScreenWidth")
+                    h = dm.get("ScreenHeight")
+                    if w and h:
+                        entry["resolution"] = f"{w}x{h}"
+                    if not entry["name"] or entry["name"] == "Monitor":
+                        entry["name"] = dm.get("Name", "Monitor") or "Monitor"
+                peripherals["monitors"].append(entry)
+
+            # Si WmiMonitorID no devolvió nada, usar Win32_DesktopMonitor solo
+            if not mon_list and desk_mons:
+                for dm in desk_mons:
+                    w = dm.get("ScreenWidth")
+                    h = dm.get("ScreenHeight")
+                    peripherals["monitors"].append({
+                        "name": dm.get("Name", "Monitor") or "Monitor",
+                        "serial": "",
+                        "manufacturer": "",
+                        "resolution": f"{w}x{h}" if w and h else "",
+                    })
+        except Exception:
+            pass
+
+        # --- Impresoras ---
+        try:
+            ps_printers = _run_powershell(
+                "Get-CimInstance Win32_Printer | Select-Object Name, DriverName, "
+                "PortName, DeviceID, Local, Network, Default | ConvertTo-Json -Compress"
+            )
+            try:
+                prn_list = json.loads(ps_printers) if ps_printers else []
+                if isinstance(prn_list, dict):
+                    prn_list = [prn_list]
+            except Exception:
+                prn_list = []
+
+            for p in prn_list:
+                peripherals["printers"].append({
+                    "name": p.get("Name", ""),
+                    "driver": p.get("DriverName", ""),
+                    "port": p.get("PortName", ""),
+                    "is_local": bool(p.get("Local", False)),
+                    "is_network": bool(p.get("Network", False)),
+                    "is_default": bool(p.get("Default", False)),
+                })
+        except Exception:
+            pass
+
+        # --- Teclados ---
+        try:
+            ps_kbd = _run_powershell(
+                "Get-CimInstance Win32_Keyboard | Select-Object Name, Description, "
+                "DeviceID, Layout, PNPDeviceID, Status | ConvertTo-Json -Compress"
+            )
+            try:
+                kbd_list = json.loads(ps_kbd) if ps_kbd else []
+                if isinstance(kbd_list, dict):
+                    kbd_list = [kbd_list]
+            except Exception:
+                kbd_list = []
+
+            for k in kbd_list:
+                pnp = k.get("PNPDeviceID", "")
+                conn_type = "USB" if "USB" in pnp.upper() else ("PS/2" if "PS2" in pnp.upper() else "Otro")
+                peripherals["keyboards"].append({
+                    "name": k.get("Name", "") or k.get("Description", ""),
+                    "type": conn_type,
+                    "layout": k.get("Layout", ""),
+                    "device_id": k.get("DeviceID", ""),
+                    "status": k.get("Status", ""),
+                })
+        except Exception:
+            pass
+
+        # --- Mouse ---
+        try:
+            ps_mouse = _run_powershell(
+                "Get-CimInstance Win32_PointingDevice | Select-Object Name, Description, "
+                "Manufacturer, DeviceID, PNPDeviceID, PointingType, Status, "
+                "NumberOfButtons | ConvertTo-Json -Compress"
+            )
+            try:
+                mouse_list = json.loads(ps_mouse) if ps_mouse else []
+                if isinstance(mouse_list, dict):
+                    mouse_list = [mouse_list]
+            except Exception:
+                mouse_list = []
+
+            pointing_types = {1: "Otro", 2: "Desconocido", 3: "Mouse", 4: "Trackball",
+                              5: "Track Point", 6: "Glide Point", 7: "Touch Pad",
+                              8: "Touch Screen", 9: "Mouse óptico"}
+            for m in mouse_list:
+                pnp = m.get("PNPDeviceID", "")
+                conn_type = "USB" if "USB" in pnp.upper() else ("PS/2" if "PS2" in pnp.upper() else ("Bluetooth" if "BTHLE" in pnp.upper() or "BTH" in pnp.upper() else "Otro"))
+                pt = m.get("PointingType")
+                peripherals["mice"].append({
+                    "name": m.get("Name", "") or m.get("Description", ""),
+                    "manufacturer": m.get("Manufacturer", ""),
+                    "type": conn_type,
+                    "pointing_type": pointing_types.get(pt, "Mouse"),
+                    "buttons": m.get("NumberOfButtons", 0),
+                    "status": m.get("Status", ""),
+                })
+        except Exception:
+            pass
+
+        # --- Dispositivos USB ---
+        try:
+            ps_usb = _run_powershell(
+                "Get-CimInstance Win32_USBControllerDevice | "
+                "ForEach-Object { [wmi]($_.Dependent) } | "
+                "Where-Object { $_.PNPClass -ne 'USB' -and $_.PNPClass -ne $null } | "
+                "Select-Object Name, Manufacturer, DeviceID, PNPClass, Status -First 50 | "
+                "ConvertTo-Json -Compress"
+            )
+            try:
+                usb_list = json.loads(ps_usb) if ps_usb else []
+                if isinstance(usb_list, dict):
+                    usb_list = [usb_list]
+            except Exception:
+                usb_list = []
+
+            for u in usb_list:
+                name = u.get("Name", "")
+                # Filtrar dispositivos genéricos de sistema
+                if name and "USB Composite" not in name and "USB Root Hub" not in name:
+                    peripherals["usb_devices"].append({
+                        "name": name,
+                        "manufacturer": u.get("Manufacturer", ""),
+                        "device_id": u.get("DeviceID", ""),
+                        "class": u.get("PNPClass", ""),
+                        "status": u.get("Status", ""),
+                    })
+        except Exception:
+            pass
+
+    elif IS_MAC:
+        # --- macOS: system_profiler ---
+        try:
+            # Monitores
+            disp_data = _run_system_profiler("SPDisplaysDataType")
+            if disp_data:
+                for gpu in disp_data:
+                    displays = gpu.get("spdisplays_ndrvs", [])
+                    for d in displays:
+                        res = d.get("_spdisplays_resolution", "")
+                        peripherals["monitors"].append({
+                            "name": d.get("_name", "Display"),
+                            "serial": d.get("_spdisplays_display-serial-number", ""),
+                            "manufacturer": d.get("_spdisplays_display-vendor-id", ""),
+                            "resolution": res,
+                        })
+        except Exception:
+            pass
+
+        try:
+            # Impresoras
+            prn_data = _run_system_profiler("SPPrintersDataType")
+            if prn_data:
+                for p in prn_data:
+                    peripherals["printers"].append({
+                        "name": p.get("_name", ""),
+                        "driver": p.get("ppd", ""),
+                        "port": p.get("uri", ""),
+                        "is_local": True,
+                        "is_network": "://" in p.get("uri", ""),
+                        "is_default": p.get("default", "") == "yes",
+                    })
+        except Exception:
+            pass
+
+        try:
+            # USB
+            usb_data = _run_system_profiler("SPUSBDataType")
+            if usb_data:
+                def _parse_usb_mac(items, results):
+                    for item in items:
+                        name = item.get("_name", "")
+                        if name and "hub" not in name.lower():
+                            results.append({
+                                "name": name,
+                                "manufacturer": item.get("manufacturer", ""),
+                                "device_id": item.get("vendor_id", ""),
+                                "class": "USB",
+                                "status": "OK",
+                            })
+                        # Recurse into children
+                        children = item.get("_items", [])
+                        if children:
+                            _parse_usb_mac(children, results)
+                _parse_usb_mac(usb_data, peripherals["usb_devices"])
+        except Exception:
+            pass
+
+        # Teclado y mouse (genéricos en macOS)
+        try:
+            hid_output = _run_cmd(
+                ["ioreg", "-r", "-c", "IOHIDInterface", "-l"], timeout=10
+            )
+            if "Keyboard" in hid_output:
+                peripherals["keyboards"].append({
+                    "name": "Apple Keyboard",
+                    "type": "Built-in / Bluetooth",
+                    "layout": "",
+                    "device_id": "",
+                    "status": "OK",
+                })
+            if "Mouse" in hid_output or "Trackpad" in hid_output:
+                peripherals["mice"].append({
+                    "name": "Apple Trackpad / Mouse",
+                    "manufacturer": "Apple",
+                    "type": "Built-in / Bluetooth",
+                    "pointing_type": "Touch Pad",
+                    "buttons": 2,
+                    "status": "OK",
+                })
+        except Exception:
+            pass
+
+    elif IS_LINUX:
+        # --- Linux ---
+        try:
+            # Monitores via xrandr
+            xrandr = _run_cmd(["xrandr", "--query"], timeout=10)
+            if xrandr:
+                for line in xrandr.split("\n"):
+                    if " connected" in line:
+                        parts = line.split()
+                        name = parts[0]
+                        res = ""
+                        for p in parts:
+                            if "x" in p and "+" in p:
+                                res = p.split("+")[0]
+                                break
+                        peripherals["monitors"].append({
+                            "name": name,
+                            "serial": "",
+                            "manufacturer": "",
+                            "resolution": res,
+                        })
+        except Exception:
+            pass
+
+        try:
+            # Impresoras via lpstat
+            lpstat = _run_cmd(["lpstat", "-p", "-d"], timeout=10)
+            if lpstat:
+                for line in lpstat.split("\n"):
+                    if line.startswith("printer"):
+                        parts = line.split()
+                        if len(parts) >= 2:
+                            peripherals["printers"].append({
+                                "name": parts[1],
+                                "driver": "",
+                                "port": "",
+                                "is_local": True,
+                                "is_network": False,
+                                "is_default": False,
+                            })
+                    if "default destination:" in line.lower():
+                        default_name = line.split(":")[-1].strip()
+                        for p in peripherals["printers"]:
+                            if p["name"] == default_name:
+                                p["is_default"] = True
+        except Exception:
+            pass
+
+        try:
+            # USB via lsusb
+            lsusb = _run_cmd(["lsusb"], timeout=10)
+            if lsusb:
+                for line in lsusb.split("\n"):
+                    if line and "hub" not in line.lower():
+                        # Bus 001 Device 003: ID 046d:c077 Logitech, Inc. M105 Optical Mouse
+                        parts = line.split("ID ")
+                        if len(parts) == 2:
+                            dev_info = parts[1]
+                            dev_id = dev_info.split(" ")[0] if " " in dev_info else dev_info
+                            dev_name = " ".join(dev_info.split(" ")[1:]).strip() if " " in dev_info else ""
+                            if dev_name:
+                                peripherals["usb_devices"].append({
+                                    "name": dev_name,
+                                    "manufacturer": "",
+                                    "device_id": dev_id,
+                                    "class": "USB",
+                                    "status": "OK",
+                                })
+        except Exception:
+            pass
+
+        # Teclado y mouse desde /proc/bus/input/devices
+        try:
+            if os.path.exists("/proc/bus/input/devices"):
+                with open("/proc/bus/input/devices", "r") as f:
+                    content = f.read()
+                blocks = content.split("\n\n")
+                for block in blocks:
+                    if "keyboard" in block.lower() and "EV=" in block:
+                        name_line = [l for l in block.split("\n") if l.startswith("N:")]
+                        if name_line:
+                            kbd_name = name_line[0].split('"')[1] if '"' in name_line[0] else "Keyboard"
+                            peripherals["keyboards"].append({
+                                "name": kbd_name,
+                                "type": "USB" if "usb" in block.lower() else "PS/2",
+                                "layout": "",
+                                "device_id": "",
+                                "status": "OK",
+                            })
+                    if "mouse" in block.lower() and "EV=" in block:
+                        name_line = [l for l in block.split("\n") if l.startswith("N:")]
+                        if name_line:
+                            mouse_name = name_line[0].split('"')[1] if '"' in name_line[0] else "Mouse"
+                            peripherals["mice"].append({
+                                "name": mouse_name,
+                                "manufacturer": "",
+                                "type": "USB" if "usb" in block.lower() else "PS/2",
+                                "pointing_type": "Mouse",
+                                "buttons": 3,
+                                "status": "OK",
+                            })
+        except Exception:
+            pass
+
+    return peripherals
+
+
 # ========== Collect All ==========
 def collect_full_inventory():
     """Recopila toda la información y la retorna como diccionario."""
     inventory = {
-        "agent_version": "1.1.0",
+        "agent_version": "1.2.0",
         "collected_at": datetime.now().isoformat(),
         "agent_id": str(uuid.getnode()),
         "is_admin": is_admin(),
@@ -753,6 +1140,7 @@ def collect_full_inventory():
         "gpu": get_gpu_info(),
         "software": get_installed_software(),
         "windows_updates": get_windows_updates(),
+        "peripherals": get_peripherals(),
     }
 
     return inventory
