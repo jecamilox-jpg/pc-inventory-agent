@@ -703,10 +703,14 @@ def api_report():
 def api_machines():
     """Lista todas las máquinas registradas."""
     db = get_db()
+    # is_online se calcula dinámicamente: offline si last_seen > 10 minutos
     rows = db.execute("""
         SELECT id, hostname, manufacturer, model, serial_number,
                os_edition, cpu_name, ram_total_gb, logged_user,
-               last_seen, is_online, chassis_type
+               last_seen,
+               CASE WHEN last_seen >= datetime('now', '-10 minutes')
+                    THEN 1 ELSE 0 END as is_online,
+               chassis_type
         FROM machines ORDER BY hostname
     """).fetchall()
     return jsonify([dict(r) for r in rows])
@@ -794,7 +798,7 @@ def api_stats():
     db = get_db()
     total = db.execute("SELECT COUNT(*) FROM machines").fetchone()[0]
     online = db.execute(
-        "SELECT COUNT(*) FROM machines WHERE is_online = 1"
+        "SELECT COUNT(*) FROM machines WHERE last_seen >= datetime('now', '-10 minutes')"
     ).fetchone()[0]
     total_sw = db.execute(
         "SELECT COUNT(DISTINCT name) FROM software"
@@ -1243,12 +1247,12 @@ def api_alerts():
     db = get_db()
     alerts = []
 
-    # Equipos offline (no reportan hace > 24h)
+    # Equipos offline (no reportan hace > 10 minutos)
     offline = db.execute("""
         SELECT id, hostname, last_seen
         FROM machines
-        WHERE is_online = 0
-           OR last_seen < datetime('now', '-24 hours')
+        WHERE last_seen < datetime('now', '-10 minutes')
+           OR last_seen IS NULL
         ORDER BY last_seen ASC
     """).fetchall()
     for m in offline:
@@ -1340,9 +1344,13 @@ def api_stats_charts():
         FROM machines GROUP BY os_edition ORDER BY value DESC
     """).fetchall()
 
-    # Online vs Offline
-    online = db.execute("SELECT COUNT(*) FROM machines WHERE is_online = 1").fetchone()[0]
-    offline = db.execute("SELECT COUNT(*) FROM machines WHERE is_online = 0").fetchone()[0]
+    # Online vs Offline (dinámico: 10 min sin reportar = offline)
+    online = db.execute(
+        "SELECT COUNT(*) FROM machines WHERE last_seen >= datetime('now', '-10 minutes')"
+    ).fetchone()[0]
+    offline = db.execute(
+        "SELECT COUNT(*) FROM machines WHERE last_seen < datetime('now', '-10 minutes') OR last_seen IS NULL"
+    ).fetchone()[0]
 
     # Manufacturer distribution
     mfr_dist = db.execute("""

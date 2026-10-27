@@ -644,7 +644,7 @@
             <div class="table-responsive">
                 <table class="table tbl mb-0">
                     <thead><tr>
-                        <th>Estado</th><th>Hostname</th><th>Fabricante / Modelo</th><th>Serial</th><th>OS</th><th>CPU</th><th>RAM</th><th>Disco</th><th>Usuario</th><th>Último reporte</th>
+                        <th>Estado</th><th>Hostname</th><th>Fabricante / Modelo</th><th>Serial</th><th>OS</th><th>CPU</th><th>RAM</th><th>Disco</th><th>Usuario</th><th>Último reporte</th><th style="width:50px"></th>
                     </tr></thead>
                     <tbody id="machinesBody">
                         <tr><td colspan="10" class="text-center py-5 text-muted">Cargando...</td></tr>
@@ -1021,7 +1021,7 @@ async function loadAllData() {
 function renderMachines(machines) {
     const tbody = document.getElementById('machinesBody');
     if (!machines.length) {
-        tbody.innerHTML = '<tr><td colspan="10" class="empty-state"><i class="bi bi-pc-display" style="font-size:2.5rem;color:var(--slate-300)"></i><p class="mt-2">Sin equipos registrados</p><p style="font-size:.82rem">Instala el agente en tus PCs para comenzar</p></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="11" class="empty-state"><i class="bi bi-pc-display" style="font-size:2.5rem;color:var(--slate-300)"></i><p class="mt-2">Sin equipos registrados</p><p style="font-size:.82rem">Instala el agente en tus PCs para comenzar</p></td></tr>';
         return;
     }
     tbody.innerHTML = machines.map(m => `
@@ -1036,6 +1036,7 @@ function renderMachines(machines) {
             <td style="font-size:.78rem">${diskInfo(m)}</td>
             <td>${esc(m.logged_user || '-')}</td>
             <td style="font-size:.76rem;color:var(--slate-400)">${timeAgo(m.last_seen)}</td>
+            <td onclick="event.stopPropagation()"><button class="btn btn-sm btn-outline-danger" style="border-radius:6px;font-size:.7rem;padding:2px 8px" onclick="confirmDeleteMachine('${m.id}','${esc(m.hostname)}')" title="Eliminar equipo"><i class="bi bi-trash"></i></button></td>
         </tr>`).join('');
 }
 
@@ -1609,6 +1610,25 @@ async function deleteMachine(id) {
         closeDetail();
         loadAllData();
     } catch (e) { console.error(e); }
+}
+
+function confirmDeleteMachine(id, hostname) {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)';
+    overlay.innerHTML = `
+        <div style="background:#fff;border-radius:16px;padding:32px;max-width:400px;width:90%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+            <div style="width:56px;height:56px;border-radius:50%;background:var(--red-light);display:flex;align-items:center;justify-content:center;margin:0 auto 16px">
+                <i class="bi bi-trash" style="font-size:1.5rem;color:var(--red)"></i>
+            </div>
+            <h5 style="margin:0 0 8px;font-size:1.1rem">Eliminar equipo</h5>
+            <p style="color:var(--slate-500);font-size:.88rem;margin:0 0 24px">¿Estás seguro de eliminar <strong>${hostname}</strong>? Se borrarán todos sus datos de inventario, software y periféricos. Esta acción no se puede deshacer.</p>
+            <div style="display:flex;gap:12px;justify-content:center">
+                <button onclick="this.closest('div[style*=fixed]').remove()" style="padding:8px 24px;border-radius:8px;border:1px solid var(--slate-300);background:#fff;cursor:pointer;font-size:.88rem;font-weight:600;color:var(--slate-600)">Cancelar</button>
+                <button onclick="deleteMachine('${id}');this.closest('div[style*=fixed]').remove()" style="padding:8px 24px;border-radius:8px;border:none;background:var(--red);color:#fff;cursor:pointer;font-size:.88rem;font-weight:600">Eliminar</button>
+            </div>
+        </div>`;
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
 }
 
 function filterSoftware(q) {
