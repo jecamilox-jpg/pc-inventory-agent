@@ -10,7 +10,7 @@ import json
 DEFAULT_CONFIG = {
     "server_url": "http://172.16.100.4:8086",
     "api_key": "change-me-on-first-run",
-    "interval_seconds": 3600,     # cada 1 hora
+    "interval_seconds": 1800,     # cada 30 minutos
     "send_software": True,
     "send_updates": True,
     "log_file": "agent.log",
