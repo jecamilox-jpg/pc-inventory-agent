@@ -461,6 +461,10 @@
         </a>
 
         <div class="nav-section">Monitoreo</div>
+        <a class="nav-item" data-view="vulnerabilidades" onclick="switchView('vulnerabilidades')">
+            <i class="bi bi-shield-exclamation"></i> <span>Vulnerabilidades</span>
+            <span class="badge-count" id="navVulnCount" style="display:none"></span>
+        </a>
         <a class="nav-item" data-view="alertas" onclick="switchView('alertas')">
             <i class="bi bi-bell"></i> <span>Alertas</span>
             <span class="badge-count" id="navAlertCount" style="display:none"></span>
@@ -782,6 +786,92 @@
         </div>
     </div>
 
+    <!-- ===== VULNERABILIDADES VIEW ===== -->
+    <div class="view-panel" id="view-vulnerabilidades">
+        <div class="row g-3 mb-4">
+            <div class="col-6 col-md-3">
+                <div class="stat-card" style="border-left:4px solid #dc2626">
+                    <div class="stat-label">Críticas</div>
+                    <div class="stat-value" id="vulnCritical" style="color:#dc2626">0</div>
+                </div>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="stat-card" style="border-left:4px solid #ef4444">
+                    <div class="stat-label">Altas</div>
+                    <div class="stat-value" id="vulnHigh" style="color:#ef4444">0</div>
+                </div>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="stat-card" style="border-left:4px solid #f97316">
+                    <div class="stat-label">Medias</div>
+                    <div class="stat-value" id="vulnMedium" style="color:#f97316">0</div>
+                </div>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="stat-card" style="border-left:4px solid #eab308">
+                    <div class="stat-label">Bajas</div>
+                    <div class="stat-value" id="vulnLow" style="color:#eab308">0</div>
+                </div>
+            </div>
+        </div>
+        <div class="row g-3 mb-4">
+            <div class="col-12 col-lg-4">
+                <div class="card-panel">
+                    <div class="card-panel-header"><h6 class="mb-0"><i class="bi bi-pie-chart me-2"></i>Por Severidad</h6></div>
+                    <div class="card-panel-body"><div class="chart-wrap-sm"><canvas id="chartVulnSeverity"></canvas></div></div>
+                </div>
+            </div>
+            <div class="col-12 col-lg-4">
+                <div class="card-panel">
+                    <div class="card-panel-header"><h6 class="mb-0"><i class="bi bi-bar-chart me-2"></i>Top Vulnerabilidades</h6></div>
+                    <div class="card-panel-body"><div class="chart-wrap-sm"><canvas id="chartVulnTop"></canvas></div></div>
+                </div>
+            </div>
+            <div class="col-12 col-lg-4">
+                <div class="card-panel">
+                    <div class="card-panel-header"><h6 class="mb-0"><i class="bi bi-pc-display me-2"></i>Estado de Equipos</h6></div>
+                    <div class="card-panel-body"><div class="chart-wrap-sm"><canvas id="chartVulnMachines"></canvas></div></div>
+                </div>
+            </div>
+        </div>
+        <div class="row g-3">
+            <div class="col-12">
+                <div class="card-panel">
+                    <div class="card-panel-header">
+                        <h6 class="mb-0"><i class="bi bi-shield-exclamation me-2"></i>Detalle de Vulnerabilidades</h6>
+                        <div class="d-flex gap-2">
+                            <select class="form-select form-select-sm" style="width:auto;font-size:.75rem" id="vulnFilterSeverity" onchange="renderVulns()">
+                                <option value="">Todas las severidades</option>
+                                <option value="critical">Crítica</option>
+                                <option value="high">Alta</option>
+                                <option value="medium">Media</option>
+                                <option value="low">Baja</option>
+                            </select>
+                            <select class="form-select form-select-sm" style="width:auto;font-size:.75rem" id="vulnFilterMachine" onchange="renderVulns()">
+                                <option value="">Todos los equipos</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table data-table mb-0">
+                            <thead><tr>
+                                <th>Severidad</th>
+                                <th>Equipo</th>
+                                <th>ID</th>
+                                <th>Vulnerabilidad</th>
+                                <th>Categoría</th>
+                                <th>Remediación</th>
+                            </tr></thead>
+                            <tbody id="vulnTableBody">
+                                <tr><td colspan="6" class="text-center text-muted py-4">Cargando...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- ===== ALERTAS VIEW ===== -->
     <div class="view-panel" id="view-alertas">
         <div class="row g-3 mb-4">
@@ -941,6 +1031,7 @@ const viewTitles = {
     equipos: { icon: 'bi-display', text: 'Equipos' },
     software: { icon: 'bi-box-seam', text: 'Software' },
     red: { icon: 'bi-diagram-3', text: 'Red' },
+    vulnerabilidades: { icon: 'bi-shield-exclamation', text: 'Vulnerabilidades' },
     alertas: { icon: 'bi-bell', text: 'Alertas' },
     wol: { icon: 'bi-lightning-charge', text: 'Wake-on-LAN' },
     audit: { icon: 'bi-shield-check', text: 'Auditoría' },
@@ -961,6 +1052,7 @@ function switchView(view) {
     // Lazy-load data per view
     if (view === 'software') loadSoftwareCatalog();
     if (view === 'red') loadNetwork();
+    if (view === 'vulnerabilidades') loadVulnerabilities();
     if (view === 'alertas') loadAlerts();
     if (view === 'wol') loadWOL();
     if (view === 'audit') loadAudit();
@@ -1186,6 +1278,158 @@ async function loadNetwork() {
             <td>${a.is_up ? '<span class="badge-online">Activo</span>' : '<span class="badge-offline">Inactivo</span>'}</td>
         </tr>`).join('');
     } catch (e) { console.error(e); }
+}
+
+// ===== VULNERABILITIES =====
+let vulnData = [];
+let vulnSummary = {};
+
+const VULN_COLORS = {
+    critical: '#dc2626',
+    high: '#ef4444',
+    medium: '#f97316',
+    low: '#eab308',
+};
+const VULN_LABELS = {
+    critical: 'Crítica',
+    high: 'Alta',
+    medium: 'Media',
+    low: 'Baja',
+};
+
+async function loadVulnerabilities() {
+    try {
+        const [vulnsRes, summaryRes] = await Promise.all([
+            fetch('/api/vulnerabilities'),
+            fetch('/api/vulnerabilities/summary'),
+        ]);
+        vulnData = await vulnsRes.json();
+        vulnSummary = await summaryRes.json();
+
+        // Stat cards
+        document.getElementById('vulnCritical').textContent = vulnSummary.counts?.critical || 0;
+        document.getElementById('vulnHigh').textContent = vulnSummary.counts?.high || 0;
+        document.getElementById('vulnMedium').textContent = vulnSummary.counts?.medium || 0;
+        document.getElementById('vulnLow').textContent = vulnSummary.counts?.low || 0;
+
+        // Nav badge
+        const total = vulnSummary.total || 0;
+        const badge = document.getElementById('navVulnCount');
+        if (total > 0) { badge.textContent = total; badge.style.display = ''; }
+        else { badge.style.display = 'none'; }
+
+        // Populate machine filter
+        const machineFilter = document.getElementById('vulnFilterMachine');
+        const currentVal = machineFilter.value;
+        const hostnames = [...new Set(vulnData.map(v => v.hostname))].sort();
+        machineFilter.innerHTML = '<option value="">Todos los equipos</option>' +
+            hostnames.map(h => `<option value="${h}">${h}</option>`).join('');
+        machineFilter.value = currentVal;
+
+        renderVulns();
+        renderVulnCharts();
+    } catch (e) { console.error(e); }
+}
+
+function renderVulns() {
+    const sevFilter = document.getElementById('vulnFilterSeverity').value;
+    const machFilter = document.getElementById('vulnFilterMachine').value;
+    let filtered = vulnData;
+    if (sevFilter) filtered = filtered.filter(v => v.severity === sevFilter);
+    if (machFilter) filtered = filtered.filter(v => v.hostname === machFilter);
+
+    const tbody = document.getElementById('vulnTableBody');
+    if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">No se encontraron vulnerabilidades</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = filtered.map(v => {
+        const color = VULN_COLORS[v.severity] || '#6b7280';
+        const label = VULN_LABELS[v.severity] || v.severity;
+        const bgColor = v.severity === 'critical' ? 'rgba(220,38,38,.12)' :
+                        v.severity === 'high' ? 'rgba(239,68,68,.10)' :
+                        v.severity === 'medium' ? 'rgba(249,115,22,.10)' :
+                        'rgba(234,179,8,.10)';
+        return `<tr style="border-left:3px solid ${color}">
+            <td><span class="badge" style="background:${bgColor};color:${color};font-weight:600;font-size:.7rem">${label}</span></td>
+            <td style="font-size:.78rem">${esc(v.hostname)}</td>
+            <td style="font-size:.72rem;color:var(--slate-400)">${esc(v.vuln_id)}</td>
+            <td style="font-size:.78rem"><strong>${esc(v.title)}</strong><br><span style="color:var(--slate-400);font-size:.72rem">${esc(v.description||'')}</span></td>
+            <td style="font-size:.75rem">${esc(v.category||'')}</td>
+            <td style="font-size:.72rem;color:var(--slate-500)">${esc(v.remediation||'')}</td>
+        </tr>`;
+    }).join('');
+}
+
+function renderVulnCharts() {
+    const counts = vulnSummary.counts || {};
+
+    // Severity donut
+    if (charts.vulnSeverity) charts.vulnSeverity.destroy();
+    charts.vulnSeverity = new Chart(document.getElementById('chartVulnSeverity'), {
+        type: 'doughnut',
+        data: {
+            labels: ['Crítica', 'Alta', 'Media', 'Baja'],
+            datasets: [{
+                data: [counts.critical||0, counts.high||0, counts.medium||0, counts.low||0],
+                backgroundColor: [VULN_COLORS.critical, VULN_COLORS.high, VULN_COLORS.medium, VULN_COLORS.low],
+                borderWidth: 0,
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { position: 'bottom', labels: { font: { family: 'Century Gothic', size: 11 }, padding: 12 } } },
+            cutout: '65%',
+        }
+    });
+
+    // Top vulns bar chart
+    const topVulns = vulnSummary.top_vulns || [];
+    if (charts.vulnTop) charts.vulnTop.destroy();
+    charts.vulnTop = new Chart(document.getElementById('chartVulnTop'), {
+        type: 'bar',
+        data: {
+            labels: topVulns.map(v => v.vuln_id),
+            datasets: [{
+                data: topVulns.map(v => v.affected_count),
+                backgroundColor: topVulns.map(v => VULN_COLORS[v.severity] || '#6b7280'),
+                borderRadius: 4,
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+            plugins: { legend: { display: false },
+                tooltip: { callbacks: { title: (items) => {
+                    const i = items[0].dataIndex;
+                    return topVulns[i]?.title || '';
+                }}}
+            },
+            scales: {
+                x: { beginAtZero: true, ticks: { stepSize: 1, font: { family: 'Century Gothic', size: 10 } }, grid: { display: false } },
+                y: { ticks: { font: { family: 'Century Gothic', size: 10 } }, grid: { display: false } },
+            }
+        }
+    });
+
+    // Machines status (clean vs with vulns)
+    if (charts.vulnMachines) charts.vulnMachines.destroy();
+    charts.vulnMachines = new Chart(document.getElementById('chartVulnMachines'), {
+        type: 'doughnut',
+        data: {
+            labels: ['Sin vulnerabilidades', 'Con vulnerabilidades'],
+            datasets: [{
+                data: [vulnSummary.machines_clean||0, vulnSummary.machines_with_vulns||0],
+                backgroundColor: ['#059669', '#ef4444'],
+                borderWidth: 0,
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { position: 'bottom', labels: { font: { family: 'Century Gothic', size: 11 }, padding: 12 } } },
+            cutout: '65%',
+        }
+    });
 }
 
 // ===== ALERTS =====

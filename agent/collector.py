@@ -1123,6 +1123,309 @@ def get_peripherals():
 
 
 # ========== Collect All ==========
+def get_vulnerabilities():
+    """Escanea vulnerabilidades y configuraciones inseguras del equipo."""
+    vulns = []
+
+    if not IS_WINDOWS:
+        return vulns
+
+    def _ps(cmd):
+        """Ejecuta PowerShell y retorna stdout."""
+        try:
+            r = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", cmd],
+                capture_output=True, text=True, timeout=30
+            )
+            return r.stdout.strip()
+        except Exception:
+            return ""
+
+    def _add(vuln_id, title, description, severity, category, remediation=""):
+        vulns.append({
+            "vuln_id": vuln_id,
+            "title": title,
+            "description": description,
+            "severity": severity,  # critical, high, medium, low
+            "category": category,
+            "remediation": remediation,
+        })
+
+    # ── 1. Firewall deshabilitado ──
+    try:
+        fw = _ps("Get-NetFirewallProfile | Select-Object -Property Name,Enabled | ConvertTo-Json")
+        if fw:
+            profiles = json.loads(fw)
+            if not isinstance(profiles, list):
+                profiles = [profiles]
+            for p in profiles:
+                if not p.get("Enabled", True):
+                    _add("FW-001",
+                         f"Firewall deshabilitado: perfil {p.get('Name', '?')}",
+                         f"El perfil de firewall '{p.get('Name')}' está desactivado, dejando el equipo expuesto a conexiones no autorizadas.",
+                         "critical", "firewall",
+                         f"Habilitar: Set-NetFirewallProfile -Name {p.get('Name')} -Enabled True")
+    except Exception:
+        pass
+
+    # ── 2. Antivirus / Windows Defender ──
+    try:
+        av = _ps("Get-MpComputerStatus | Select-Object AntivirusEnabled,RealTimeProtectionEnabled,AntivirusSignatureAge,AntispywareEnabled | ConvertTo-Json")
+        if av:
+            avd = json.loads(av)
+            if not avd.get("AntivirusEnabled", True):
+                _add("AV-001", "Antivirus deshabilitado",
+                     "Windows Defender u otro antivirus está desactivado en este equipo.",
+                     "critical", "antivirus",
+                     "Activar Windows Defender desde Seguridad de Windows")
+            if not avd.get("RealTimeProtectionEnabled", True):
+                _add("AV-002", "Protección en tiempo real desactivada",
+                     "La protección en tiempo real del antivirus no está activa.",
+                     "high", "antivirus",
+                     "Set-MpPreference -DisableRealtimeMonitoring $false")
+            sig_age = avd.get("AntivirusSignatureAge", 0)
+            if sig_age and int(sig_age) > 7:
+                _add("AV-003", f"Firmas de antivirus desactualizadas ({sig_age} días)",
+                     f"Las definiciones de virus tienen {sig_age} días de antigüedad. Se recomienda actualizar al menos semanalmente.",
+                     "high" if int(sig_age) > 14 else "medium", "antivirus",
+                     "Update-MpSignature")
+    except Exception:
+        pass
+
+    # ── 3. SMBv1 habilitado (WannaCry, EternalBlue) ──
+    try:
+        smb1 = _ps("Get-SmbServerConfiguration | Select-Object EnableSMB1Protocol | ConvertTo-Json")
+        if smb1:
+            smbd = json.loads(smb1)
+            if smbd.get("EnableSMB1Protocol", False):
+                _add("SMB-001", "SMBv1 habilitado",
+                     "El protocolo SMBv1 está activo. Es vulnerable a exploits como WannaCry y EternalBlue.",
+                     "critical", "protocol",
+                     "Set-SmbServerConfiguration -EnableSMB1Protocol $false -Force")
+    except Exception:
+        pass
+
+    # ── 4. Cuenta de invitado activa ──
+    try:
+        guest = _ps("Get-LocalUser -Name Guest | Select-Object Enabled | ConvertTo-Json")
+        if guest:
+            gd = json.loads(guest)
+            if gd.get("Enabled", False):
+                _add("ACC-001", "Cuenta de invitado activa",
+                     "La cuenta 'Guest' está habilitada, permitiendo acceso anónimo al equipo.",
+                     "high", "accounts",
+                     "Disable-LocalUser -Name Guest")
+    except Exception:
+        pass
+
+    # ── 5. Cuentas de administrador sin contraseña ──
+    try:
+        admins = _ps("""
+            $admins = Get-LocalGroupMember -Group 'Administradores' -ErrorAction SilentlyContinue
+            if (-not $admins) { $admins = Get-LocalGroupMember -Group 'Administrators' -ErrorAction SilentlyContinue }
+            foreach ($a in $admins) {
+                $user = Get-LocalUser -Name ($a.Name -split '\\\\')[-1] -ErrorAction SilentlyContinue
+                if ($user -and $user.PasswordRequired -eq $false) {
+                    Write-Output $user.Name
+                }
+            }
+        """)
+        if admins:
+            for admin_name in admins.strip().split("\n"):
+                admin_name = admin_name.strip()
+                if admin_name:
+                    _add("ACC-002", f"Admin sin contraseña requerida: {admin_name}",
+                         f"La cuenta de administrador '{admin_name}' no tiene contraseña obligatoria.",
+                         "critical", "accounts",
+                         f"Set-LocalUser -Name {admin_name} -PasswordNeverExpires $false")
+    except Exception:
+        pass
+
+    # ── 6. RDP habilitado ──
+    try:
+        rdp = _ps("(Get-ItemProperty 'HKLM:\\System\\CurrentControlSet\\Control\\Terminal Server').fDenyTSConnections")
+        if rdp == "0":
+            # RDP está habilitado, verificar NLA
+            nla = _ps("(Get-ItemProperty 'HKLM:\\System\\CurrentControlSet\\Control\\Terminal Server\\WinStations\\RDP-Tcp').UserAuthentication")
+            if nla == "0":
+                _add("RDP-001", "RDP habilitado sin NLA",
+                     "El escritorio remoto está activo sin autenticación a nivel de red (NLA), haciéndolo vulnerable a ataques de fuerza bruta.",
+                     "high", "remote_access",
+                     "Habilitar NLA en Propiedades del sistema > Acceso remoto")
+            else:
+                _add("RDP-002", "RDP habilitado",
+                     "El escritorio remoto está habilitado. Verificar que solo usuarios autorizados tengan acceso.",
+                     "low", "remote_access",
+                     "Revisar usuarios en el grupo 'Remote Desktop Users'")
+    except Exception:
+        pass
+
+    # ── 7. UAC deshabilitado ──
+    try:
+        uac = _ps("(Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System').EnableLUA")
+        if uac == "0":
+            _add("UAC-001", "UAC deshabilitado",
+                 "El Control de Cuentas de Usuario (UAC) está desactivado. Cualquier programa puede ejecutarse con privilegios elevados sin confirmación.",
+                 "high", "system",
+                 "Habilitar UAC desde Panel de control > Cuentas de usuario")
+    except Exception:
+        pass
+
+    # ── 8. AutoRun / AutoPlay habilitado ──
+    try:
+        autorun = _ps("(Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer' -ErrorAction SilentlyContinue).NoDriveTypeAutoRun")
+        if not autorun or autorun == "0":
+            _add("AR-001", "AutoRun/AutoPlay habilitado",
+                 "La ejecución automática de medios extraíbles está activa, lo que puede permitir ejecución de malware por USB.",
+                 "medium", "system",
+                 "GPO: Desactivar reproducción automática en todos los drives")
+    except Exception:
+        pass
+
+    # ── 9. Actualizaciones pendientes (Windows Update) ──
+    try:
+        pending = _ps("""
+            $s = New-Object -ComObject Microsoft.Update.Session
+            $searcher = $s.CreateUpdateSearcher()
+            $results = $searcher.Search('IsInstalled=0')
+            $results.Updates.Count
+        """)
+        if pending and pending.isdigit() and int(pending) > 0:
+            count = int(pending)
+            sev = "low"
+            if count > 20:
+                sev = "high"
+            elif count > 10:
+                sev = "medium"
+            _add("UPD-001", f"{count} actualizaciones de Windows pendientes",
+                 f"Hay {count} actualizaciones de Windows sin instalar. Mantener el equipo actualizado reduce riesgos de seguridad.",
+                 sev, "updates",
+                 "Instalar actualizaciones desde Windows Update")
+    except Exception:
+        pass
+
+    # ── 10. Puertos peligrosos abiertos ──
+    try:
+        if psutil:
+            dangerous_ports = {
+                21: "FTP", 23: "Telnet", 135: "RPC", 139: "NetBIOS",
+                445: "SMB", 1433: "SQL Server", 3306: "MySQL",
+                5900: "VNC", 5985: "WinRM",
+            }
+            listening = set()
+            for conn in psutil.net_connections(kind='inet'):
+                if conn.status == 'LISTEN' and conn.laddr:
+                    port = conn.laddr.port
+                    if port in dangerous_ports:
+                        listening.add(port)
+
+            for port in sorted(listening):
+                svc = dangerous_ports[port]
+                sev = "medium"
+                if port == 23:  # Telnet
+                    sev = "high"
+                elif port in (21, 5900):  # FTP, VNC
+                    sev = "high"
+                elif port in (1433, 3306):  # DB
+                    sev = "medium"
+                _add(f"PORT-{port}", f"Puerto {port} ({svc}) abierto",
+                     f"El servicio {svc} está escuchando en el puerto {port}. Si no se utiliza, deshabilitarlo reduce la superficie de ataque.",
+                     sev, "ports",
+                     f"Detener el servicio asociado o bloquear el puerto {port} en el firewall")
+    except Exception:
+        pass
+
+    # ── 11. Contraseñas que no expiran (cuentas locales) ──
+    try:
+        no_expire = _ps("Get-LocalUser | Where-Object { $_.Enabled -and $_.PasswordNeverExpires } | Select-Object Name | ConvertTo-Json")
+        if no_expire:
+            users = json.loads(no_expire)
+            if not isinstance(users, list):
+                users = [users]
+            active_users = [u.get("Name", "") for u in users if u.get("Name")]
+            if len(active_users) > 0:
+                names = ", ".join(active_users[:5])
+                extra = f" (+{len(active_users)-5} más)" if len(active_users) > 5 else ""
+                _add("ACC-003", f"Contraseñas que nunca expiran: {names}{extra}",
+                     f"Hay {len(active_users)} cuenta(s) con contraseñas que nunca expiran: {names}{extra}.",
+                     "medium", "accounts",
+                     "Establecer política de expiración de contraseñas vía GPO o Set-LocalUser")
+    except Exception:
+        pass
+
+    # ── 12. BitLocker no habilitado ──
+    try:
+        bl = _ps("(Get-BitLockerVolume -MountPoint C: -ErrorAction SilentlyContinue).ProtectionStatus")
+        if bl == "Off" or bl == "0":
+            _add("ENC-001", "BitLocker no habilitado en C:",
+                 "La unidad del sistema no está cifrada con BitLocker. En caso de robo o pérdida, los datos quedan expuestos.",
+                 "medium", "encryption",
+                 "Habilitar BitLocker desde Panel de control > Cifrado de unidad BitLocker")
+    except Exception:
+        pass
+
+    # ── 13. Carpetas compartidas expuestas ──
+    try:
+        shares = _ps("Get-SmbShare | Where-Object { $_.Name -notmatch '\\$$' -and $_.Name -ne 'print$' -and $_.Name -ne 'IPC$' } | Select-Object Name,Path | ConvertTo-Json")
+        if shares:
+            share_list = json.loads(shares)
+            if not isinstance(share_list, list):
+                share_list = [share_list]
+            user_shares = [s for s in share_list if s.get("Name")]
+            if user_shares:
+                names = ", ".join(s["Name"] for s in user_shares[:3])
+                _add("SHARE-001", f"Carpetas compartidas: {names}",
+                     f"Se encontraron {len(user_shares)} carpeta(s) compartida(s). Verificar permisos de acceso.",
+                     "low", "shares",
+                     "Revisar permisos en: Administración del equipo > Carpetas compartidas")
+    except Exception:
+        pass
+
+    # ── 14. Política de contraseñas débil ──
+    try:
+        min_len = _ps("(net accounts | Select-String 'Longitud').ToString() -replace '.*:\\s*',''")
+        if min_len and min_len.isdigit() and int(min_len) < 8:
+            _add("POL-001", f"Longitud mínima de contraseña: {min_len} caracteres",
+                 f"La política de contraseñas permite contraseñas de solo {min_len} caracteres. Se recomienda mínimo 8.",
+                 "medium", "policy",
+                 "net accounts /minpwlen:8")
+    except Exception:
+        pass
+
+    # ── 15. Inicio automático (AutoLogon) ──
+    try:
+        autologon = _ps("(Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon' -ErrorAction SilentlyContinue).AutoAdminLogon")
+        if autologon == "1":
+            _add("AUTH-001", "Inicio de sesión automático habilitado",
+                 "El equipo inicia sesión automáticamente sin pedir contraseña, exponiendo el acceso físico.",
+                 "high", "authentication",
+                 "Desactivar AutoAdminLogon en el registro de Windows")
+    except Exception:
+        pass
+
+    # ── 16. Windows obsoleto (build antiguo) ──
+    try:
+        build = _ps("(Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion').CurrentBuild")
+        if build and build.isdigit():
+            build_num = int(build)
+            # Windows 10 1507 = 10240, 1607 = 14393, 1809 = 17763, 21H2 = 19044
+            # Windows 11 21H2 = 22000
+            if build_num < 17763:  # Anterior a 1809
+                _add("OS-001", f"Windows con build obsoleto ({build})",
+                     "Esta versión de Windows ya no recibe actualizaciones de seguridad. Actualizar al build más reciente.",
+                     "critical", "system",
+                     "Actualizar Windows a la versión más reciente")
+            elif build_num < 19044:  # Anterior a 21H2
+                _add("OS-002", f"Windows con build desactualizado ({build})",
+                     "Esta versión de Windows puede estar próxima a fin de soporte.",
+                     "medium", "system",
+                     "Actualizar Windows a la versión más reciente")
+    except Exception:
+        pass
+
+    return vulns
+
+
 def collect_full_inventory():
     """Recopila toda la información y la retorna como diccionario."""
     inventory = {
@@ -1141,6 +1444,7 @@ def collect_full_inventory():
         "software": get_installed_software(),
         "windows_updates": get_windows_updates(),
         "peripherals": get_peripherals(),
+        "vulnerabilities": get_vulnerabilities(),
     }
 
     return inventory

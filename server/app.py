@@ -249,6 +249,23 @@ def init_db():
             FOREIGN KEY (machine_id) REFERENCES machines(id)
         );
 
+        CREATE TABLE IF NOT EXISTS vulnerabilities (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            machine_id TEXT NOT NULL,
+            vuln_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT,
+            severity TEXT NOT NULL,
+            category TEXT,
+            remediation TEXT,
+            detected_at TEXT,
+            FOREIGN KEY (machine_id) REFERENCES machines(id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_vulns_machine
+            ON vulnerabilities(machine_id);
+        CREATE INDEX IF NOT EXISTS idx_vulns_severity
+            ON vulnerabilities(severity);
         CREATE INDEX IF NOT EXISTS idx_peripherals_machine
             ON peripherals(machine_id);
         CREATE INDEX IF NOT EXISTS idx_peripherals_type
@@ -682,6 +699,19 @@ def api_report():
         """, (machine_id, usb.get("name"), usb.get("manufacturer", ""),
               "", usb.get("class", "")))
 
+    # Actualizar vulnerabilidades
+    db.execute("DELETE FROM vulnerabilities WHERE machine_id = ?", (machine_id,))
+    for vuln in data.get("vulnerabilities", []):
+        db.execute("""
+            INSERT INTO vulnerabilities (machine_id, vuln_id, title,
+                description, severity, category, remediation, detected_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            machine_id, vuln.get("vuln_id"), vuln.get("title"),
+            vuln.get("description"), vuln.get("severity"),
+            vuln.get("category"), vuln.get("remediation"), now
+        ))
+
     # Log
     db.execute("""
         INSERT INTO report_log (machine_id, reported_at, agent_version)
@@ -783,12 +813,81 @@ def api_delete_machine(machine_id):
         "DELETE FROM network_adapters WHERE machine_id = ?", (machine_id,)
     )
     db.execute("DELETE FROM peripherals WHERE machine_id = ?", (machine_id,))
+    db.execute("DELETE FROM vulnerabilities WHERE machine_id = ?", (machine_id,))
     db.execute("DELETE FROM report_log WHERE machine_id = ?", (machine_id,))
     hostname = db.execute("SELECT hostname FROM machines WHERE id = ?", (machine_id,)).fetchone()
     db.execute("DELETE FROM machines WHERE id = ?", (machine_id,))
     db.commit()
     audit_log("delete_machine", f"Eliminado: {hostname['hostname'] if hostname else machine_id}")
     return jsonify({"status": "deleted", "machine_id": machine_id})
+
+
+@app.route("/api/vulnerabilities", methods=["GET"])
+@require_login
+def api_vulnerabilities():
+    """Lista todas las vulnerabilidades detectadas."""
+    db = get_db()
+    rows = db.execute("""
+        SELECT v.id, v.machine_id, m.hostname, v.vuln_id, v.title,
+               v.description, v.severity, v.category, v.remediation,
+               v.detected_at
+        FROM vulnerabilities v
+        JOIN machines m ON v.machine_id = m.id
+        ORDER BY
+            CASE v.severity
+                WHEN 'critical' THEN 1
+                WHEN 'high' THEN 2
+                WHEN 'medium' THEN 3
+                WHEN 'low' THEN 4
+            END,
+            v.detected_at DESC
+    """).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/vulnerabilities/summary", methods=["GET"])
+@require_login
+def api_vulnerabilities_summary():
+    """Resumen de vulnerabilidades por severidad."""
+    db = get_db()
+    counts = db.execute("""
+        SELECT severity, COUNT(*) as count
+        FROM vulnerabilities GROUP BY severity
+    """).fetchall()
+    summary = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    for row in counts:
+        summary[row["severity"]] = row["count"]
+
+    total_machines = db.execute("SELECT COUNT(*) FROM machines").fetchone()[0]
+    machines_with_vulns = db.execute("""
+        SELECT COUNT(DISTINCT machine_id) FROM vulnerabilities
+    """).fetchone()[0]
+    machines_clean = total_machines - machines_with_vulns
+
+    # Top vulnerabilidades más frecuentes
+    top_vulns = db.execute("""
+        SELECT vuln_id, title, severity, COUNT(*) as affected_count
+        FROM vulnerabilities
+        GROUP BY vuln_id
+        ORDER BY
+            CASE severity
+                WHEN 'critical' THEN 1
+                WHEN 'high' THEN 2
+                WHEN 'medium' THEN 3
+                WHEN 'low' THEN 4
+            END,
+            affected_count DESC
+        LIMIT 10
+    """).fetchall()
+
+    return jsonify({
+        "counts": summary,
+        "total": sum(summary.values()),
+        "machines_scanned": total_machines,
+        "machines_with_vulns": machines_with_vulns,
+        "machines_clean": machines_clean,
+        "top_vulns": [dict(r) for r in top_vulns],
+    })
 
 
 @app.route("/api/stats", methods=["GET"])
